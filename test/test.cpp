@@ -1,6 +1,3 @@
-void haha(){
-	
-}
 void softOn()
     {
         if (_onOffEvent == NULL) 
