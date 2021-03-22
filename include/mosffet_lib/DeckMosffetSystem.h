@@ -36,7 +36,7 @@ public:
 public:
     DeckMosffetSystem(unsigned int pinNum, Pir *pir)
     {
-
+     
         _pinNum = pinNum;
         pinMode(_pinNum, OUTPUT);
         // turn off mosffet  at the start
@@ -130,7 +130,7 @@ public:
         if (_opeartionMode == HARD_ON)
         {
             _status = LED_HARD_ON_STATUS;
-            _locker = true;
+            _locker = false;
             if (_waitToTurnOffEvent)
             {
                 _waitToTurnOffEvent->kill(&_waitToTurnOffEvent);
@@ -139,16 +139,16 @@ public:
         else if (_opeartionMode == HARD_OFF)
         {
             _status = LED_HARD_OFF_STATUS;
-            _locker = true;
+            _locker = false;
             if (_waitToTurnOffEvent)
             {
                 _waitToTurnOffEvent->kill(&_waitToTurnOffEvent);
             }
         }
-        else if (_opeartionMode == AUTO && _locker == true)
+        else if (_opeartionMode == AUTO && _locker == false)
         {
             _status = LED_TURNING_ON_STATUS;
-            _locker = false;
+            _locker = true;
         }
 
         // debug
@@ -164,15 +164,15 @@ public:
     void nonRegularHourRun()
     {
 
-        Serial.print(_opeartionMode == AUTO);
-        Serial.print("-----------mode and isAuto------------");
-        Serial.println(_isAuto == false);
+        // Serial.print(_opeartionMode == AUTO );
+        // Serial.print("-----------mode and isAuto------------");
+        // Serial.println(_isAuto == false );
         if (_opeartionMode == HARD_ON && _isHardOn == false)
         {
             _currentPwm = _maxPwn;
             ApplyPwmStrength(_currentPwm);
             _status = LED_HARD_ON_STATUS;
-            _locker = true;
+            _locker = false;
             // toggle the status to improve efficiency
             _isHardOn = true;
             _isHardOff = false;
@@ -188,7 +188,7 @@ public:
             _currentPwm = _MINI_PWM_STRENGTH;
             ApplyPwmStrength(_currentPwm);
             _status = LED_HARD_OFF_STATUS;
-            _locker = true;
+            _locker = false;
             // toggle the status to improve efficiency
             _isHardOff = true;
             _isHardOn = false;
@@ -199,6 +199,8 @@ public:
                 _waitToTurnOffEvent->kill(&(_waitToTurnOffEvent));
             }
         }
+
+
 
         else if (_opeartionMode == AUTO && _isAuto == false)
         {
@@ -212,7 +214,7 @@ public:
             _isHardOn = false;
             _isAuto = true;
 
-            _locker = true;
+            _locker = false;
         }
     }
 };
