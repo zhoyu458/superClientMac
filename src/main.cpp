@@ -11,7 +11,7 @@
 #include "../include/components_lib/Button.h"
 #include "../include/watchdog_lib/Watchdog.h"
 #include "../include/pir_lib/Pir.h"
-#include "../include/mosffet_lib/Mosffet.h"
+#include "../include/mosffet_lib/DeckMosffetSystem.h"
 #include "../include/components_lib/Led.h"
 
 const char *ssid = "SPARK-5RUXSX";
@@ -30,7 +30,7 @@ byte ledStopHour = 6;                                     // led stops workinf f
 /************************Pir sensor***************************************/
 Pir *pir = new Pir(D2);
 /************************Mosffet***************************************/
-Mosffet *mosffet = new Mosffet(D1, pir);
+DeckMosffetSystem *deckMosffetSystem = new DeckMosffetSystem(D1, pir);
 // IntervalEvent *blinkEvent = new IntervalEvent(2000, test);
 
 /**************************Datetime***************************************/
@@ -41,15 +41,15 @@ BLYNK_WRITE(V1)
 {
 
   // Serial.println(param.asInt());
-  mosffet->setMaxPwm(param.asInt());
+  deckMosffetSystem->setMaxPwm(param.asInt());
   if ((datetime->getHours() >= ledStartHour || datetime->getHours() <= ledStopHour))
   {
-    mosffet->_status = LED_TURNING_ON_STATUS;
+    deckMosffetSystem->_status = LED_TURNING_ON_STATUS;
   }
   else
   {
-    if (mosffet->_opeartionMode == HARD_ON)
-      mosffet->ApplyPwmStrength(mosffet->_currentPwm = mosffet->_maxPwn);
+    if (deckMosffetSystem->_opeartionMode == HARD_ON)
+      deckMosffetSystem->ApplyPwmStrength(deckMosffetSystem->_currentPwm = deckMosffetSystem->_maxPwn);
   }
 }
 
@@ -62,7 +62,7 @@ BLYNK_WRITE(V0)
   {
     temp = 3;
   }
-  mosffet->_opeartionMode = temp; //
+  deckMosffetSystem->_opeartionMode = temp; //
 }
 /**************************WATCHDOG************************************/
 Watchdog *watchdog = NULL;
@@ -81,10 +81,10 @@ IntervalEvent *datetimeEvent = new IntervalEvent(FETCH_DATETIME_INTERVAL,
                                                  [&]() -> void { datetime->updateHours(); });
 
 IntervalEvent *heartBeatToSuperClientEvent = new IntervalEvent(HEATBEAT_TO_SUPERCLIENT_INTERVAL,
-                                                               [&]() -> void { bridgeToSuperClient.virtualWrite(V13, ("deckLightStatus_" + String(mosffet->_opeartionMode))); });
+                                                               [&]() -> void { bridgeToSuperClient.virtualWrite(V13, ("deckLightStatus_" + String(deckMosffetSystem->_opeartionMode))); });
 
 IntervalEvent *lightIntensityToSuperClientEvent = new IntervalEvent(lightIntensity_TO_SUPERCLIENT_INTERVAL,
-                                                                    [&]() -> void { bridgeToSuperClient.virtualWrite(V13, ("deckLightBrightness_" + String(mosffet->_currentPwm))); });
+                                                                    [&]() -> void { bridgeToSuperClient.virtualWrite(V13, ("deckLightBrightness_" + String(deckMosffetSystem->_currentPwm))); });
 
 IntervalEvent *ledBlinkEvent = new IntervalEvent(BLINK_INTERVAL, [&]() -> void {});
 /**************************TEST***************************************/
@@ -108,17 +108,17 @@ void loop()
   heartBeatToSuperClientEvent->start();      //Do not active this line, unless for production
   lightIntensityToSuperClientEvent->start(); //Do not active this line, unless for production
 
-  if (mosffet != NULL)
+  if (deckMosffetSystem != NULL)
   {
 
     // mosffet->run();
     if ((datetime->getHours() >= ledStartHour || datetime->getHours() <= ledStopHour))
     {
-      mosffet->run();
+      deckMosffetSystem->run();
     }
     else // outside the hours, hardOn and hardOFF should be still working
     {
-      mosffet->nonRegularHourRun();
+      deckMosffetSystem->nonRegularHourRun();
     }
   }
 }
