@@ -44,6 +44,7 @@ BLYNK_WRITE(V1)
   deckMosffetSystem->setMaxPwm(param.asInt());
   if ((datetime->getHours() >= ledStartHour || datetime->getHours() <= ledStopHour))
   {
+    if(deckMosffetSystem->_pir->detect() == true) // superclient sends brightness every 7 seconds, this line prevent unexpected light up
     deckMosffetSystem->_status = LED_TURNING_ON_STATUS;
   }
   else
