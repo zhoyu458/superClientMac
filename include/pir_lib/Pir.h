@@ -1,5 +1,4 @@
 #include <Arduino.h>
-// #include "../include./event_lib./IntervalEvent.h"
 #ifndef _PIR_H
 #define _PIR_H
 
@@ -23,15 +22,3 @@ public:
 };
 #endif
 
-/*
-EXAMPLE
-    - Watchdog *watchdog = NULL;
-    void setup()
-    {
-     watchdog = new Watchdog(); // initiation must be in the setup 
-    }
-    void loop()
-    {
-     watchdog->start();  // start must be in the loop
-    }
-*/

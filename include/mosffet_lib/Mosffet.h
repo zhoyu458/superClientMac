@@ -38,7 +38,7 @@ public:
     // byte _status = LED_OFF_NO_DETECTIOIN_STATUS;
     // Pir *_pir;
 
-    int _prePwn = 0;
+    int _prePwn = 0; // debug variable
 
 public:
 
