@@ -25,11 +25,14 @@ public:
     IntervalEvent *_lightChangeEvent = NULL;
     TimeoutEvent *_waitEvent = NULL;
     int _lightValue = 0;
-    int _lightThreshold = 90;
-    int _lightThresholdAdjustment = 100; // stop led flicker while environemnt light hit the original threshold
+    int _lightThreshold = 0;
+    int _originalLightThreshold = 90;
+    int _adjustlightThreshold = 190; // stop led flicker while environemnt light hit the original threshold, higher value more sensitive
 
     const int _PWM_INTERVAL = 20;       // 20ms as the interval
     const int _LIGHT_ON_PERIOD = 30000; // light ON for 30 seconds once triggered 45000
+
+    const byte _adjustPeriod = 2;  // set adjust period as 2 hours
 
 public:
     IndoorLedSystem(Mosffet *mosffet, Pir *pirUpstair, Pir *pirDownstair, Pir *pirFaceMasterRoom, LDR *ldr)
@@ -43,9 +46,13 @@ public:
         _lightChangeEvent = new IntervalEvent(_PWM_INTERVAL, [&]() -> void { mosffet->ApplyPwmStrength(mosffet->_currentPwm += mosffet->_change); });
     }
 
-    void run()
+    void run(byte startHour , byte currentHour)
     {
-
+        if(currentHour<= startHour + _adjustPeriod){
+            _lightThreshold = _adjustlightThreshold;
+        }else{
+            _lightThreshold = _originalLightThreshold;
+        }
         switch (_status)
         {
         case LED_OFF_NO_DETECTIOIN_STATUS:

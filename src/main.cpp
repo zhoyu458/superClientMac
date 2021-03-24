@@ -91,6 +91,8 @@ void loop()
 
   if ((datetime->getHours() >= ledStartHour || datetime->getHours() <= ledStopHour))
   {
-    indoorLedSystem->run();
+    indoorLedSystem->run(ledStartHour, datetime->getHours());
+  }else{
+    indoorLedSystem->_mosffet->off();
   }
 }

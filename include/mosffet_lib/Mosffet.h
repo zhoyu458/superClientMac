@@ -38,7 +38,7 @@ public:
     // byte _status = LED_OFF_NO_DETECTIOIN_STATUS;
     // Pir *_pir;
 
-    int _prePwn = 0; // debug variable
+    //int _prePwn = 0; // debug variable
 
 public:
 
@@ -69,7 +69,8 @@ public:
 
     void off()
     {
-        analogWrite(_pinNum, _MINI_PWM_STRENGTH);
+        _currentPwm = _MINI_PWM_STRENGTH;
+        analogWrite(_pinNum, _currentPwm);
     }
 
     void on()
