@@ -29,7 +29,7 @@ public:
 
         if (_holdEvent == false && (millis() - _initTime >= _waitTime))
         {
-            Serial.println("call back");
+            // Serial.println("call back");
             _callback();
             this->kill(ptr);
         }
@@ -55,6 +55,12 @@ public:
         *ptr = NULL;
         this->_callback = NULL;
         delete this;
+    }
+
+    void updateTimeoutDuration(unsigned long newWaitTime)
+    {
+        _waitTime = newWaitTime;
+        resetEventClock();
     }
 };
 #endif

@@ -4,13 +4,13 @@
 #ifndef _MYDHT_H
 #define _MYDHT_H
 
-class MyDHT{
+class MYDHT{
 public:
     int _pin;
     dht *DHT = NULL; 
 
 public:
-    MyDHT(int pin){
+    MYDHT(int pin){
         _pin = pin;
         DHT = new dht();
     }

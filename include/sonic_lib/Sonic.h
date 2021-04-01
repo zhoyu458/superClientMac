@@ -2,13 +2,13 @@
 #ifndef _SONIC_H
 #define _SONIC_H
 
-class sonicSensor{
+class SonicSensor{
   public:
     byte trigPin;
     byte echoPin;
-    long duration;
+    // long duration;
 
-  sonicSensor(byte tp, byte ep){
+  SonicSensor(byte tp, byte ep){
     trigPin = tp;
     echoPin = ep;
 
@@ -22,8 +22,8 @@ class sonicSensor{
     digitalWrite(trigPin, HIGH);
     delayMicroseconds(10);
     digitalWrite(trigPin, LOW);
-    duration = pulseIn(echoPin, HIGH);   
-    return duration * 0.034 / 2;
+    // duration = pulseIn(echoPin, HIGH);   
+    return pulseIn(echoPin, HIGH) * 0.034 / 2;
   }
 
   
