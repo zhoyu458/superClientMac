@@ -1,6 +1,7 @@
 {
     "files.associations": {
         "*.js": "javascriptreact",
+        "*.jsx": "javascriptreact",
         "array": "cpp",
         "deque": "cpp",
         "list": "cpp",
@@ -8,6 +9,10 @@
         "unordered_map": "cpp",
         "vector": "cpp",
         "initializer_list": "cpp",
-        "functional": "cpp"
+        "functional": "cpp",
+        "*.tcc": "cpp",
+        "istream": "cpp",
+        "tuple": "cpp",
+        "utility": "cpp"
     }
 }

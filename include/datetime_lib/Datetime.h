@@ -35,7 +35,7 @@ public:
     } 
 
     byte getHours(){
-        return _hour;
+        return _hour-1;
     }
 };
 #endif
