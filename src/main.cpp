@@ -1,4 +1,3 @@
-#define test 123
 #define BLYNK_PRINT Serial
 #define GARAGE_WARNNING_DISTANCE 200 // less than the value, increase garageWarnningCounter
 #define DRIVEWAY_WARNNING_HOUR 22    // less than the value, increase garageWarnningCounter
