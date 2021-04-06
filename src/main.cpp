@@ -26,6 +26,9 @@
 #include "../include/sonic_lib/Sonic.h"
 // #include "../include/MYDHT_lib/MYDHT.h" //bugs in the lib.
 #include "../include/TM_display_lib/TM_display.h"
+#include "../include/mosffet_lib/Mosffet.h"
+#include "../include/mosffet_lib/DeckMosffetSystem.h"
+#include "../include/pir_lib/Pir.h"
 
 /********this line is for test***************/
 
@@ -53,6 +56,15 @@ char pass[] = "ReliableSloth20VV";
 
 // test:  UPpQ01aooX9O3q3ICgkKEDn_HpJeThPi
 // production: td2xBB3r_PM3ZnvsSnDUq_ykyLzfvtNB
+
+/************************Pir sensor***************************************/
+Pir *pir = new Pir(A0);
+
+/************************Mosffet***************************************/
+Mosffet *mosffet = new Mosffet(D8);
+
+DeckMosffetSystem *deckMosffetSystem = new DeckMosffetSystem(mosffet, pir);
+
 
 /*****************************pulse pin**************************/
 // send pulse to arduino watchdog, prevent power off
