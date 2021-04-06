@@ -27,8 +27,10 @@
 // #include "../include/MYDHT_lib/MYDHT.h" //bugs in the lib.
 #include "../include/TM_display_lib/TM_display.h"
 #include "../include/mosffet_lib/Mosffet.h"
-#include "../include/mosffet_lib/DeckMosffetSystem.h"
+#include "../include/mosffet_lib/GarageLedSystem.h"
 #include "../include/pir_lib/Pir.h"
+#include "../include/LDR_lib/LDR.h"
+
 
 /********this line is for test***************/
 
@@ -58,12 +60,15 @@ char pass[] = "ReliableSloth20VV";
 // production: td2xBB3r_PM3ZnvsSnDUq_ykyLzfvtNB
 
 /************************Pir sensor***************************************/
-Pir *pir = new Pir(A0);
+Pir *pir = NULL;
+
+/************************LDR sensor***************************************/
+LDR *ldr = NULL;
 
 /************************Mosffet***************************************/
-Mosffet *mosffet = new Mosffet(D8);
+Mosffet *mosffet = NULL;
 
-DeckMosffetSystem *deckMosffetSystem = new DeckMosffetSystem(mosffet, pir);
+GarageLedSystem *garageLedSystem = NULL;
 
 
 /*****************************pulse pin**************************/
