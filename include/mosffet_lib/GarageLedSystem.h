@@ -15,6 +15,8 @@
 #define LED_HARD_ON_STATUS 5
 #define LED_HARD_OFF_STATUS 6
 
+#define LIGHT_THRESHOLD 900 // more light, greater value
+
 #ifndef _DECKMOSFFETSYSTEM_H
 #define _DECKMOSFFETSYSTEM_H
 
@@ -53,11 +55,25 @@ public:
 
     void run()
     {
+      
         switch (_status)
         {
         case LED_OFF_NO_DETECTIOIN_STATUS:
+            _mosffet->_currentPwm = _MINI_PWM_STRENGTH;
+            _mosffet->ApplyPwmStrength(_mosffet->_currentPwm);
 
             _mosffet->_change = 0;
+            // if light condition is good, then led turn off immedietaly
+            if (_ldr->getValue() > LIGHT_THRESHOLD)
+            {
+                _status = LED_OFF_NO_DETECTIOIN_STATUS;
+                // if there is an ongoing _waitToTurnOffEvent, then kill the timeout event
+                if(_waitToTurnOffEvent)
+                _waitToTurnOffEvent->kill(&_waitToTurnOffEvent);
+
+                break;
+            }
+
             // detect people, shift status
             if (_pir->detect() == true)
             {
@@ -66,6 +82,13 @@ public:
             break;
         case LED_TURNING_ON_STATUS:
             _mosffet->_change = 1;
+            // if light condition is good, then led turn off immedietaly
+            if (_ldr->getValue() > LIGHT_THRESHOLD)
+            {
+                _status = LED_OFF_NO_DETECTIOIN_STATUS;
+                break;
+            }
+
             // reach max light intensity , shift status
             if (_mosffet->_currentPwm >= _mosffet->_maxPwn)
             {
@@ -74,6 +97,13 @@ public:
             break;
         case LED_MAX_AND_WAIT_STATUS:
             _mosffet->_change = 0;
+
+            // if light condition is good, then led turn off immedietaly
+            if (_ldr->getValue() > LIGHT_THRESHOLD)
+            {
+                _status = LED_OFF_NO_DETECTIOIN_STATUS;
+                break;
+            }
 
             if (_waitToTurnOffEvent == NULL)
             {
@@ -89,6 +119,13 @@ public:
             break;
         case LED_TURNING_OFF_STATUS:
             _mosffet->_change = -1;
+
+            // if light condition is good, then led turn off immedietaly
+            if (_ldr->getValue() > LIGHT_THRESHOLD)
+            {
+                _status = LED_OFF_NO_DETECTIOIN_STATUS;
+                break;
+            }
 
             if (_mosffet->_currentPwm <= _MINI_PWM_STRENGTH)
             {

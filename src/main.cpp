@@ -4,6 +4,8 @@
 #define ONE_HOUR 3600000             // an hour in mili seconds
 #define ONE_MINITE 60000
 #define dht_apin D5 // analog pin
+#define ledSwitch D8
+#define LIGHT_THRESHOLD_VALUE 1200 // more light, greater value
 
 #include <ESP8266WiFi.h>
 #include <BlynkSimpleEsp8266.h>
@@ -12,9 +14,6 @@
 #include <NTPClient.h>
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
-
-
-
 
 #include "../lib/DHT/dht.h"
 #include "../include/sonic_lib/Sonic.h"
@@ -30,7 +29,6 @@
 #include "../include/mosffet_lib/GarageLedSystem.h"
 #include "../include/pir_lib/Pir.h"
 #include "../include/LDR_lib/LDR.h"
-
 
 /********this line is for test***************/
 
@@ -66,18 +64,13 @@ Pir *pir = NULL;
 LDR *ldr = NULL;
 
 /************************Mosffet***************************************/
-Mosffet *mosffet = NULL;
+// Mosffet *mosffet = NULL;
 
-GarageLedSystem *garageLedSystem = NULL;
-
+// GarageLedSystem *garageLedSystem = NULL;
 
 /*****************************pulse pin**************************/
 // send pulse to arduino watchdog, prevent power off
 Led *pulse = NULL;
-
-/*****************************pulse pin**************************/
-// send pulse to arduino watchdog, prevent power off
-Led *led = NULL;
 
 /*****************************watch dog**************************/
 Watchdog *watchdog = NULL;
@@ -109,7 +102,7 @@ IntervalEvent *debugEvent = NULL;
 /*****************************timeoutEvent**************************/
 TimeoutEvent *garageReportEvent = NULL;
 TimeoutEvent *syncBridgeEvent = NULL;
-
+TimeoutEvent *turnOffLedSwitchEvent = NULL; //turn off the pin connects to Arduino
 
 /********************************BRIDGE***************************/
 WidgetBridge remote_nodemcu_bridge(V1); // serverMCU is the unit connect to the physical remotes
@@ -125,6 +118,7 @@ BLYNK_WRITE(V1) // V1 is used for bridge which receive data from driveway nodemc
   drivewayIsClosed = param.asInt();
   // Serial.println("receive from driveway mcu");
   drivewayWatchdogCount = 0; //reset driveway_missing_signal_counter, if
+  drivewayNodemcuIsOnline = true;
 }
 
 // // V2 is a text input terminal on Blynk App, user can open or close garage or driveway by send a msg
@@ -274,8 +268,8 @@ BLYNK_WRITE(V15)
 void sync_bridges()
 {
   // sync deck light operation mode and intensity after superclient reboots
-  deck_nodemcu_bridge.virtualWrite(V0, deckLedOperationModeFromApp);
-  deck_nodemcu_bridge.virtualWrite(V0, deckLedIntensityFromApp);
+  // deck_nodemcu_bridge.virtualWrite(V0, deckLedOperationModeFromApp);
+  // deck_nodemcu_bridge.virtualWrite(V0, deckLedIntensityFromApp);
 
   // Serial.println("sync all bridges get called");
 }
@@ -424,13 +418,14 @@ void deckWatchdogEventWrapper()
 
 void debugEventWrapper()
 {
-  // if(garageReportEvent)
-  // garageReportEvent->debug();
-  // Serial.print("dt->getHours()");
-  // Serial.println(dt->getHours());
+  // if(ldr)
+  // Serial.printf("ldr value is %d\n", ldr->getValue());
+  // if(pir)
+  // Serial.printf("pir sensor  %d\n", pir->detect());
+  // // if(mosffet)
+  // //  Serial.printf("mosffet value  %d\n\n", mosffet->_currentPwm);
+  //    Serial.printf("D8 value  %d\n\n", digitalRead(D8));
 
-  // Serial.print("drivewayNotificationHour");
-  // Serial.println(drivewayNotificationHour);
 }
 /**********************************************************************************************************/
 
@@ -446,13 +441,17 @@ BLYNK_CONNECTED()
 void setup()
 {
   pulse = new Led(D0);
-  led = new Led(D8);
   watchdog = new Watchdog();
   sonic1 = new SonicSensor(D6, D7);
   sonic2 = new SonicSensor(D1, D2);
   dhtSensor = new dht();
   blockDisplay = new TM_display(D3, D4);
   dt = new Datetime(ssid, pass);
+  pir = new Pir(10);
+  ldr = new LDR(A0);
+  pinMode(ledSwitch, OUTPUT);
+  digitalWrite(ledSwitch, LOW);
+  // garageLedSystem = new GarageLedSystem(mosffet, pir, ldr);
 
   getRealtimeEvent = new IntervalEvent(60000, [&]() -> void { dt->updateHours(); });
   sonicSensorEvent = new IntervalEvent(2000, sonicSensorEventWrapper);
@@ -463,9 +462,9 @@ void setup()
   deckWatchdogEvent = new IntervalEvent(1500, deckWatchdogEventWrapper);
   updateAppTableEvent = new IntervalEvent(5000, updateAppTableEventWrapper);
 
-  syncBridgeEvent  = new TimeoutEvent(15000, [&]() -> void { sync_bridges(); });
+  syncBridgeEvent = new TimeoutEvent(15000, [&]() -> void { sync_bridges(); });
 
-  debugEvent = new IntervalEvent(5000, debugEventWrapper);
+  debugEvent = new IntervalEvent(1500, debugEventWrapper);
   // setup Serial port
   Serial.begin(9600);
 
@@ -478,7 +477,7 @@ void setup()
   Blynk.virtualWrite(V11, "add", 3, "甲板控制系统", "test");
   // if nodemcu reboots, check the driveway and send msg if needs.
   drivewayEventWrapper();
-  // send values to relevant bridges, sync_bridge causes internet disconnect, 
+  // send values to relevant bridges, sync_bridge causes internet disconnect,
   // a timeout event will handle this properly
   //  ----------sync_bridges();---------------
 
@@ -496,17 +495,14 @@ void setup()
 void loop()
 {
   Blynk.run();
-  if(syncBridgeEvent)
-  syncBridgeEvent->start(&syncBridgeEvent);
+  if (syncBridgeEvent)
+    syncBridgeEvent->start(&syncBridgeEvent);
 
   if (debugEvent) // working
     debugEvent->start();
 
   if (pulse) // working
     pulse->blink();
-
-  if (led) // working
-    led->blink();
 
   if (watchdog) // working
     watchdog->start();
@@ -534,6 +530,34 @@ void loop()
 
   if (updateAppTableEvent) // working
     updateAppTableEvent->start();
+
+  if(turnOffLedSwitchEvent)
+  turnOffLedSwitchEvent->start(&turnOffLedSwitchEvent);
+
+  if (ldr->getValue() < LIGHT_THRESHOLD_VALUE)
+  {
+    Serial.printf("1111.pir is: %d\n", pir->detect());// do not delete this line, otherwise led does not turn off
+    if (pir->detect() == HIGH)
+    {
+      if (turnOffLedSwitchEvent == NULL)
+      {
+        digitalWrite(ledSwitch, HIGH);
+        turnOffLedSwitchEvent = new TimeoutEvent(20000, [&]() -> void { digitalWrite(ledSwitch, LOW); });
+      }
+      else
+      {
+        turnOffLedSwitchEvent->resetEventClock();
+      }
+    }
+  }
+  else
+  {
+    digitalWrite(ledSwitch, LOW);
+    if(turnOffLedSwitchEvent)
+    turnOffLedSwitchEvent->kill(&turnOffLedSwitchEvent);
+  }
+  // if(garageLedSystem)
+  // garageLedSystem->run();
 }
 
 /************************ part have not done yet ************************/
