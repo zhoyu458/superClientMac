@@ -6,7 +6,8 @@
 #define dht_apin D5 // analog pin
 #define ledSwitch D8
 #define LIGHT_THRESHOLD_VALUE 1200 // more light, greater value
-
+#define LED_DECK_SYSTEM 1  
+#define LED_INDOOR_SYSTEM 2  
 #include <ESP8266WiFi.h>
 #include <BlynkSimpleEsp8266.h>
 #include <Ticker.h>
@@ -14,6 +15,7 @@
 #include <NTPClient.h>
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
+
 
 #include "../lib/DHT/dht.h"
 #include "../include/sonic_lib/Sonic.h"
@@ -49,6 +51,12 @@ byte deckLedOperationModeFromApp = 0; // 0: off, 1: ON 2: auto
 int deckLedIntensityFromApp = 0;
 bool deckNodeMcuIsOnline = false;
 int deckWatchdogCount = 0; // deckWatchdog status display "offline" when the variable reaches a certian number
+
+int ledSystemSelector = 1; 
+
+// The selector is used for selecting a certian led system<indoorLed or deckLed or ...> for status updating 
+// like brightness, opMode and etc.
+// 1 for deckLed system, 2 for indoor led, else is reserved.
 /*********************************WIFI****************************/
 char auth[] = "td2xBB3r_PM3ZnvsSnDUq_ykyLzfvtNB";
 char ssid[] = "SPARK-5RUXSX";
@@ -102,6 +110,7 @@ IntervalEvent *debugEvent = NULL;
 /*****************************timeoutEvent**************************/
 TimeoutEvent *garageReportEvent = NULL;
 TimeoutEvent *syncBridgeEvent = NULL;
+TimeoutEvent *syncGeneralEvent = NULL;
 TimeoutEvent *turnOffLedSwitchEvent = NULL; //turn off the pin connects to Arduino
 
 /********************************BRIDGE***************************/
@@ -185,6 +194,8 @@ BLYNK_WRITE(V10)
 // // V12 received info from app to set deck led operation status
 BLYNK_WRITE(V12)
 {
+  if(ledSystemSelector != 1) return; // if selector is not 1, then deckLedSystem is not allow to take update.
+
   deckLedOperationModeFromApp = param.asInt(); // the blynk segment tab start from 0, So have to minus 1
   if (deckLedOperationModeFromApp < 0)
   {
@@ -215,13 +226,14 @@ BLYNK_WRITE(V13)
 
   if (LedIntensity != deckLedIntensityFromApp)
   {
-    deck_nodemcu_bridge.virtualWrite(V1, deckLedIntensityFromApp); 
+    deck_nodemcu_bridge.virtualWrite(V1, deckLedIntensityFromApp); // original was V0 which looks like a bug, update to V1 wait for test.
   }
 }
 
 // // V14 is using to receive led intensity from app
 BLYNK_WRITE(V14)
 {
+  if(ledSystemSelector != 1) return; // if selector is not 1, then deckLedSystem is not allow to take update.
   deckLedIntensityFromApp = param.asInt();
   deck_nodemcu_bridge.virtualWrite(V1, deckLedIntensityFromApp);
 }
@@ -267,6 +279,13 @@ BLYNK_WRITE(V15)
 // V19 is a selector, select either deckNodeMcu or indoorNodemcu
 BLYNK_WRITE(V19)
 {
+   ledSystemSelector = param.asInt(); 
+   if(ledSystemSelector == LED_DECK_SYSTEM){  // 1 for deckLedSystem;
+     // pull all from deck LED nodeMcu, include (1) opMode (2) lightBrightnes (3) opearting hour
+   }else if(ledSystemSelector == LED_INDOOR_SYSTEM){
+     // pull all from inddor LED nodeMcu
+   }
+  
 
 }
 
@@ -274,9 +293,12 @@ BLYNK_WRITE(V19)
 void sync_bridges()
 {
   // sync deck light operation mode and intensity after superclient reboots
-  // deck_nodemcu_bridge.virtualWrite(V0, deckLedOperationModeFromApp);
-  // deck_nodemcu_bridge.virtualWrite(V0, deckLedIntensityFromApp);
+  deck_nodemcu_bridge.virtualWrite(V0, deckLedOperationModeFromApp);
+  deck_nodemcu_bridge.virtualWrite(V1, deckLedIntensityFromApp);
   // Serial.println("sync all bridges get called");
+}
+void sync_general(){
+  Blynk.virtualWrite(V19, ledSystemSelector); // send the value back to App for sync 
 }
 
 void sonicSensorEventWrapper()
@@ -443,6 +465,8 @@ BLYNK_CONNECTED()
   Blynk.syncAll();
 }
 
+
+
 void setup()
 {
   pulse = new Led(D0);
@@ -468,6 +492,9 @@ void setup()
   updateAppTableEvent = new IntervalEvent(5000, updateAppTableEventWrapper);
 
   syncBridgeEvent = new TimeoutEvent(15000, [&]() -> void { sync_bridges(); });
+  syncGeneralEvent = new TimeoutEvent(15000, [&]() -> void { sync_general(); });
+
+
 
   debugEvent = new IntervalEvent(1500, debugEventWrapper);
   // setup Serial port
@@ -502,6 +529,10 @@ void loop()
   Blynk.run();
   if (syncBridgeEvent)
     syncBridgeEvent->start(&syncBridgeEvent);
+
+  if(syncGeneralEvent){
+    syncGeneralEvent->start(&syncGeneralEvent);
+  }
 
   if (debugEvent) // working
     debugEvent->start();
