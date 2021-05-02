@@ -264,6 +264,12 @@ BLYNK_WRITE(V15)
 //   // }
 // }
 
+// V19 is a selector, select either deckNodeMcu or indoorNodemcu
+BLYNK_WRITE(V19)
+{
+
+}
+
 /**********************FUNCTION***************************************************************************/
 void sync_bridges()
 {
