@@ -215,7 +215,7 @@ BLYNK_WRITE(V13)
 
   if (LedIntensity != deckLedIntensityFromApp)
   {
-    deck_nodemcu_bridge.virtualWrite(V0, deckLedIntensityFromApp);
+    deck_nodemcu_bridge.virtualWrite(V1, deckLedIntensityFromApp); 
   }
 }
 
@@ -276,7 +276,6 @@ void sync_bridges()
   // sync deck light operation mode and intensity after superclient reboots
   // deck_nodemcu_bridge.virtualWrite(V0, deckLedOperationModeFromApp);
   // deck_nodemcu_bridge.virtualWrite(V0, deckLedIntensityFromApp);
-
   // Serial.println("sync all bridges get called");
 }
 
@@ -328,7 +327,7 @@ void updateAppTableEventWrapper()
   Blynk.virtualWrite(V11, "update", 2, "感应距离2", sonic2->getDistance());
 
   String msg = deckNodeMcuIsOnline ? "在线" : "离线";
-  Blynk.virtualWrite(V11, "update", 3, "甲板控制系统", msg);
+  Blynk.virtualWrite(V11, "update", 3, "甲板led", msg);
 }
 
 void dhtSensorEventWrapper()
