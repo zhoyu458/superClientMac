@@ -32,7 +32,9 @@
 #include "../include/LDR_lib/LDR.h"
 #include "../utilsTool/StringTools.cpp"
 
-/********this line is for test***************/
+/********CONST ***************/
+const String INDOOR_SYSTEM_ID = "indoorLed";
+const String DECK_SYSTEM_ID = "deckLed";
 
 /*********************************Global**************************/
 byte garageWarnningCounter = 0; // if the counter reaches 6,
@@ -47,25 +49,33 @@ bool drivewayNodemcuIsOnline = true;
 int drivewayWatchdogCount = 0;     // driveway status display "offline" when the variable reaches a certian number
 int drivewayNotificationHour = 22; // after 22:00, if driveway is still opened, sends notification to app
 
-byte deckLedOperationModeFromApp = 0; // 0: off, 1: ON 2: auto
-int deckLedIntensityFromApp = 0;
-bool deckNodeMcuIsOnline = false;
+int deckLedOpMode = 0; // 0: off, 1: ON 2: auto
+int deckLedLight = 0;
+bool deckMcuOnline = false;
 int deckWatchdogCount = 0; // deckWatchdog status display "offline" when the variable reaches a certian number
 int deckLedStartHour = 0;
 int deckLedStopHour = 0;
 
-// the variable toggle display info, due to limitted characters can be displayed
-bool V11Toggler = true;
+int indoorLedOpMode = 0;
+int indoorLedLight = 0;
+bool indoorMcuOnline = false;
+int indoorWatchdogCount = 0; // deckWatchdog status display "offline" when the variable reaches a certian number
+int indoorLedStartHour = 0;
+int indoorLedStopHour = 0;
 
 // The selector is used for selecting a certian led system<indoorLed or deckLed or ...> for status updating
 // like brightness, opMode and etc.
 // 1 for deckLed system, 2 for indoor led, else is reserved.
 int ledSystemSelector = 1;
 
+
+
 /***************************FUNCTION PROTOTYPE**************************/
 void syncLedDeckSystemBySending();
 void syncAllMcuBySending();
+void syncLedIndoorSystemBySending();
 void syncAppLedSystemSelector();
+
 void sonicSensorEventWrapper();
 void updateAppTableEventWrapper();
 void dhtSensorEventWrapper();
@@ -74,6 +84,7 @@ void drivewayWatchdogEventWrapper();
 void MsgToAppHandlerWrapper();
 void deckWatchdogEventWrapper();
 void debugEventWrapper();
+void indoorWatchdogEventWrapper();
 
 /*********************************WIFI****************************/
 char auth[] = "td2xBB3r_PM3ZnvsSnDUq_ykyLzfvtNB";
@@ -125,6 +136,7 @@ IntervalEvent *deckWatchdogEvent = NULL;
 IntervalEvent *updateAppTableEvent = NULL;
 
 IntervalEvent *debugEvent = NULL;
+IntervalEvent *indoorwatchDogEvent = NULL;
 /*****************************timeoutEvent**************************/
 TimeoutEvent *garageReportEvent = NULL;
 TimeoutEvent *syncBridgeEvent = NULL;
@@ -134,9 +146,9 @@ TimeoutEvent *turnOffLedSwitchEvent = NULL; //turn off the pin connects to Ardui
 /********************************BRIDGE***************************/
 WidgetBridge remote_nodemcu_bridge(V1); // serverMCU is the unit connect to the physical remotes
 
-// WidgetBridge indoor_alarm_nodemcu_bridge(V17);
-
 WidgetBridge deck_nodemcu_bridge(V100);
+
+WidgetBridge indoor_nodemcu_bridge(V101);
 
 /*****************************BLYNK WRITE**************************/
 // V1 receives data from driveway nodemcu, check if it is online.
@@ -209,32 +221,35 @@ BLYNK_WRITE(V10)
   }
 }
 
-// // V12 received info from app to set deck led operation status
+// // V12 received info from app to set led system to an operation mode
 BLYNK_WRITE(V12)
 {
-  if (ledSystemSelector != 1)
-    return; // if selector is not 1, then deckLedSystem is not allow to take update.
+  // 1 for deck led. 2 for indoor led
+  if (ledSystemSelector != 1 && ledSystemSelector != 2)
+    return;
 
-  deckLedOperationModeFromApp = param.asInt(); // the blynk segment tab start from 0, So have to minus 1
-  if (deckLedOperationModeFromApp < 0)
+  int opMode = param.asInt();
+  if (opMode != 1 && opMode != 2)
   {
-    deckLedOperationModeFromApp = 0;
+    opMode = 3;
   }
-  else if (deckLedOperationModeFromApp > 2)
+
+  if (ledSystemSelector == 1)
   {
-    deckLedOperationModeFromApp = 254;
+    deckLedOpMode = opMode;
+    deck_nodemcu_bridge.virtualWrite(V0, deckLedOpMode);
   }
-  /************************Write to deckNodeMCU*****************/
-  deck_nodemcu_bridge.virtualWrite(V0, deckLedOperationModeFromApp);
+  else if (ledSystemSelector == 2)
+  {
+    indoorLedOpMode = opMode;
+    indoor_nodemcu_bridge.virtualWrite(V0, indoorLedOpMode);
+  }
 }
 
 // // v13 is using to receive data from deck nodemcu <------or more nodemcu----> to check if the system if online or not.
 BLYNK_WRITE(V13)
 {
-  // String msg = param.asStr();
-  // received msg from deckMcu is in a format of string: <operation mode>,<intensity>
-
-  // param.asStr() has a format of <opmode>,<intensity>, <opStartHour>,<opStopHour>,.....
+  // param.asStr() has a format of <systemId><opmode>,<intensity>, <opStartHour>,<opStopHour>,.....
   // function: LedSystemInfoParser, return an array contains all info, the interger 4 means there are three pieces of info
 
   String rec = param.asStr();
@@ -250,57 +265,54 @@ BLYNK_WRITE(V13)
   // String test = String(ledSystemInfo[0]+ ledSystemInfo[1]+ ledSystemInfo[2]+ledSystemInfo[3]);
   // Serial.println(test);
   // senderId can be deckLed OR indoorLed
-  String senderId = ledSystemInfo[0];
+  // String senderId = ledSystemInfo[0]; // currently not useful but keep it inside the code
   int ledOpMode = ledSystemInfo[1].toInt();
   int ledIntensity = ledSystemInfo[2].toInt();
   int ledStartHour = ledSystemInfo[3].toInt();
   int ledStopHour = ledSystemInfo[4].toInt();
 
-  if(senderId == "deckLed"){
-      Blynk.virtualWrite(V12, ledOpMode);
-      Blynk.virtualWrite(V14, ledIntensity);
-      Blynk.virtualWrite(V20, ledStartHour);
-      Blynk.virtualWrite(V21, ledStopHour);
-      return;
-  }
-
-    if(senderId == "indoorLed"){
-
-      return;
-  }
-
-
-  // int index = msg.indexOf(',');
-  // int ledOpMode = msg.substring(0, index + 1).toInt();
-  // int LedIntensity = msg.substring(index + 1).toInt();
-
-  // if (ledOpMode != deckLedOperationModeFromApp)
-  // {
-  //   deck_nodemcu_bridge.virtualWrite(V0, deckLedOperationModeFromApp);
-  // }
-
-  // if (ledIntensity != deckLedIntensityFromApp)
-  // {
-  //   deck_nodemcu_bridge.virtualWrite(V1, deckLedIntensityFromApp); 
-  // }
+  Blynk.virtualWrite(V12, ledOpMode);
+  Blynk.virtualWrite(V14, ledIntensity);
+  Blynk.virtualWrite(V20, ledStartHour);
+  Blynk.virtualWrite(V21, ledStopHour);
 }
 
 // // V14 is using to receive led intensity from app
 BLYNK_WRITE(V14)
 {
-  if (ledSystemSelector != 1)
-    return; // if selector is not 1, then deckLedSystem is not allow to take update.
-  deckLedIntensityFromApp = param.asInt();
-  deck_nodemcu_bridge.virtualWrite(V1, deckLedIntensityFromApp);
+
+  if (ledSystemSelector == LED_DECK_SYSTEM)
+  {
+    deckLedLight = param.asInt();
+    deck_nodemcu_bridge.virtualWrite(V1, deckLedLight);
+    return;
+  }
+
+  if (ledSystemSelector == LED_INDOOR_SYSTEM)
+  {
+    indoorLedLight = param.asInt();
+    indoor_nodemcu_bridge.virtualWrite(V1, indoorLedLight);
+    return;
+  }
 }
 
 // // V15 is using to receive heatbeat from deck nodemcu, rest deckWathdog
 BLYNK_WRITE(V15)
 {
-  param.asInt();
-  deckWatchdogCount = 0;
-  // receives heatbeat from deckNodeMcu
-  deckNodeMcuIsOnline = true;
+  String sysId = param.asStr();
+  if(sysId == DECK_SYSTEM_ID){
+    deckWatchdogCount = 0;
+    // receives heatbeat from deckNodeMcu
+    deckMcuOnline = true;
+    return;
+  }
+
+  if(sysId == INDOOR_SYSTEM_ID){
+    indoorWatchdogCount = 0;
+    indoorMcuOnline = true;
+    return;
+  }
+
 }
 
 // // V16 taking msg from user App and send to indoor nodemcu to turn ON or OFF the alarm.
@@ -347,7 +359,8 @@ BLYNK_WRITE(V19)
 
   if (ledSystemSelector == LED_INDOOR_SYSTEM)
   {
-    // pull all from inddor LED nodeMcu
+    indoor_nodemcu_bridge.virtualWrite(V2, 1);
+    return;
   }
 }
 
@@ -362,8 +375,16 @@ BLYNK_WRITE(V20)
   if (ledSystemSelector == LED_DECK_SYSTEM)
   {
     deckLedStartHour = param.asInt();
-    Serial.println(deckLedStartHour);
+    // Serial.println(deckLedStartHour);
     deck_nodemcu_bridge.virtualWrite(V3, deckLedStartHour);
+    return;
+  }
+
+    if (ledSystemSelector == LED_INDOOR_SYSTEM)
+  {
+    indoorLedStartHour = param.asInt();
+    Serial.println(indoorLedStartHour);
+    indoor_nodemcu_bridge.virtualWrite(V3, indoorLedStartHour);
     return;
   }
 }
@@ -371,15 +392,17 @@ BLYNK_WRITE(V20)
 // V21 defines the led stop hour in the afernoon.  It is a slide bar on the app
 BLYNK_WRITE(V21)
 {
-  if (ledSystemSelector != LED_DECK_SYSTEM && ledSystemSelector != LED_INDOOR_SYSTEM)
-  {
-    return;
-  }
-
   if (ledSystemSelector == LED_DECK_SYSTEM)
   {
     deckLedStopHour = param.asInt();
     deck_nodemcu_bridge.virtualWrite(V4, deckLedStopHour);
+    return;
+  }
+
+  if (ledSystemSelector == LED_INDOOR_SYSTEM)
+  {
+    indoorLedStopHour = param.asInt();
+    indoor_nodemcu_bridge.virtualWrite(V4, indoorLedStopHour);
     return;
   }
 }
@@ -397,6 +420,7 @@ BLYNK_WRITE(V22)
 
   if (msg == "indoorLed")
   {
+    syncLedIndoorSystemBySending();
     return;
   }
 }
@@ -406,12 +430,16 @@ BLYNK_CONNECTED()
 {
   remote_nodemcu_bridge.setAuthToken("20e0a85a41fa4fc7b7c93a53576bb2c3"); // Place the AuthToken of the second hardware here
   deck_nodemcu_bridge.setAuthToken("Ah-lQpqdle6DvDC68M0qhofsS-8fD4KU");   // Place the AuthToken of the second hardware here
-  //indoor_alarm_nodemcu_bridge.setAuthToken("s7u2S42iA0LXum1WqX36Vjwu7QE2OP1v");
+  indoor_nodemcu_bridge.setAuthToken("s7u2S42iA0LXum1WqX36Vjwu7QE2OP1v");
   // Blynk.syncAll();
 }
 
 void setup()
 {
+    // setup Serial port
+  Serial.begin(9600);
+   // setup blynk
+  Blynk.begin(auth, ssid, pass);
   pulse = new Led(D0);
   watchdog = new Watchdog();
   sonic1 = new SonicSensor(D6, D7);
@@ -432,22 +460,23 @@ void setup()
   MsgToAppHandler = new IntervalEvent(2000, MsgToAppHandlerWrapper);
   drivewayWatchdogEvent = new IntervalEvent(1500, drivewayWatchdogEventWrapper);
   deckWatchdogEvent = new IntervalEvent(1500, deckWatchdogEventWrapper);
+
+  indoorwatchDogEvent = new IntervalEvent(1500, deckWatchdogEventWrapper);
+
   updateAppTableEvent = new IntervalEvent(3000, updateAppTableEventWrapper);
 
   syncBridgeEvent = new TimeoutEvent(10000, [&]() -> void { syncAllMcuBySending(); });
   syncGeneralEvent = new TimeoutEvent(10000, [&]() -> void { syncAppLedSystemSelector(); });
-
   debugEvent = new IntervalEvent(1500, debugEventWrapper);
-  // setup Serial port
-  Serial.begin(9600);
 
-  // setup blynk
-  Blynk.begin(auth, ssid, pass);
+
+ 
   // initiate the table, V11 is a table on Blynk App
   Blynk.virtualWrite(V11, "clr");
   Blynk.virtualWrite(V11, "add", 1, "感应距离1", "无数据");
   Blynk.virtualWrite(V11, "add", 2, "感应距离2", "无数据");
-  Blynk.virtualWrite(V11, "add", 3, "甲板控制系统", "无数据");
+  Blynk.virtualWrite(V11, "add", 3, "甲板led", "无数据");
+  Blynk.virtualWrite(V11, "add", 4, "室内led", "无数据");
   // if nodemcu reboots, check the driveway and send msg if needs.
   drivewayEventWrapper();
   // send values to relevant bridges, sync_bridge causes internet disconnect,
@@ -513,6 +542,9 @@ void loop()
   if (turnOffLedSwitchEvent)
     turnOffLedSwitchEvent->start(&turnOffLedSwitchEvent);
 
+  if(indoorwatchDogEvent)
+  indoorwatchDogEvent->start();
+
   if (ldr->getValue() < LIGHT_THRESHOLD_VALUE)
   {
     Serial.printf("1111.pir is: %d\n", pir->detect()); // do not delete this line, otherwise led does not turn off
@@ -556,15 +588,24 @@ void loop()
 /**********************FUNCTION***************************************************************************/
 void syncLedDeckSystemBySending()
 {
-  deck_nodemcu_bridge.virtualWrite(V0, deckLedOperationModeFromApp);
-  deck_nodemcu_bridge.virtualWrite(V1, deckLedIntensityFromApp);
+  deck_nodemcu_bridge.virtualWrite(V0, deckLedOpMode);
+  deck_nodemcu_bridge.virtualWrite(V1, deckLedLight);
   deck_nodemcu_bridge.virtualWrite(V3, deckLedStartHour);
   deck_nodemcu_bridge.virtualWrite(V4, deckLedStopHour);
+}
+
+void syncLedIndoorSystemBySending()
+{
+  indoor_nodemcu_bridge.virtualWrite(V0, indoorLedOpMode);
+  indoor_nodemcu_bridge.virtualWrite(V1, indoorLedLight);
+  indoor_nodemcu_bridge.virtualWrite(V3, indoorLedStartHour);
+  indoor_nodemcu_bridge.virtualWrite(V4, indoorLedStopHour);
 }
 
 void syncAllMcuBySending()
 {
   syncLedDeckSystemBySending();
+  syncLedIndoorSystemBySending();
 }
 
 // send ledSystemSelector value to the App if the superclient restart
@@ -622,23 +663,25 @@ void updateAppTableEventWrapper()
   Blynk.virtualWrite(V11, "update", 1, "感应距离1", sonic1->getDistance());
   Blynk.virtualWrite(V11, "update", 2, "感应距离2", sonic2->getDistance());
 
-  String msg;
-  if (V11Toggler)
+  if (!deckMcuOnline)
   {
-    msg = deckNodeMcuIsOnline ? "在线" : "离线";
+    Blynk.virtualWrite(V11, "update", 3, "甲板led", "离线");
   }
   else
   {
-    msg = String(deckLedStartHour) + "pm->" + String(deckLedStopHour) + " am";
-  }
-  // if deckNode is offline, do not need to toggle the info, keep displaying offline
-  if (!deckNodeMcuIsOnline)
-  {
+    String msg = String(deckLedStartHour - 12) + "pm->" + String(deckLedStopHour) + "am";
     Blynk.virtualWrite(V11, "update", 3, "甲板led", msg);
-    return;
   }
-  V11Toggler = !V11Toggler;
-  Blynk.virtualWrite(V11, "update", 3, "甲板led", msg);
+
+  if(!indoorMcuOnline)
+  {
+    Blynk.virtualWrite(V11, "update", 4, "室内led", "离线");
+  }
+  else
+  {
+    String msg = String(indoorLedStartHour - 12) + "pm->" + String(indoorLedStopHour) + "am";
+    Blynk.virtualWrite(V11, "update", 4, "室内led", msg);
+  }
 }
 
 void dhtSensorEventWrapper()
@@ -728,7 +771,17 @@ void deckWatchdogEventWrapper()
   if (deckWatchdogCount >= 10)
   {
     deckWatchdogCount = 10;
-    deckNodeMcuIsOnline = false;
+    deckMcuOnline = false;
+  }
+}
+
+void indoorWatchdogEventWrapper()
+{
+  indoorWatchdogCount++;
+  if (indoorWatchdogCount >= 10)
+  {
+    indoorWatchdogCount = 10;
+    indoorMcuOnline = false;
   }
 }
 
