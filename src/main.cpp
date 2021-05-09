@@ -51,12 +51,30 @@ byte deckLedOperationModeFromApp = 0; // 0: off, 1: ON 2: auto
 int deckLedIntensityFromApp = 0;
 bool deckNodeMcuIsOnline = false;
 int deckWatchdogCount = 0; // deckWatchdog status display "offline" when the variable reaches a certian number
+int deckLedStartHour = 0;
+int deckLedStopHour = 0;
 
-int ledSystemSelector = 1;
+// the variable toggle display info, due to limitted characters can be displayed
+bool V11Toggler = true;
 
 // The selector is used for selecting a certian led system<indoorLed or deckLed or ...> for status updating
 // like brightness, opMode and etc.
 // 1 for deckLed system, 2 for indoor led, else is reserved.
+int ledSystemSelector = 1;
+
+/***************************FUNCTION PROTOTYPE**************************/
+void syncLedDeckSystemBySending();
+void syncAllMcuBySending();
+void syncAppLedSystemSelector();
+void sonicSensorEventWrapper();
+void updateAppTableEventWrapper();
+void dhtSensorEventWrapper();
+void drivewayEventWrapper();
+void drivewayWatchdogEventWrapper();
+void MsgToAppHandlerWrapper();
+void deckWatchdogEventWrapper();
+void debugEventWrapper();
+
 /*********************************WIFI****************************/
 char auth[] = "td2xBB3r_PM3ZnvsSnDUq_ykyLzfvtNB";
 char ssid[] = "SPARK-5RUXSX";
@@ -218,38 +236,53 @@ BLYNK_WRITE(V13)
 
   // param.asStr() has a format of <opmode>,<intensity>, <opStartHour>,<opStopHour>,.....
   // function: LedSystemInfoParser, return an array contains all info, the interger 4 means there are three pieces of info
-  
+
   String rec = param.asStr();
   // Serial.print("recevie data is ");
   // Serial.println(rec);
 
-  String *ledSystemInfo = LedSystemInfoParser(rec, 4);
-  if(ledSystemInfo == NULL){
+  String *ledSystemInfo = LedSystemInfoParser(rec, 5);
+  if (ledSystemInfo == NULL)
+  {
     Serial.println("ledSystemInfo is NULL at line 223");
     return;
   }
   // String test = String(ledSystemInfo[0]+ ledSystemInfo[1]+ ledSystemInfo[2]+ledSystemInfo[3]);
   // Serial.println(test);
-  int ledOpMode = ledSystemInfo[0].toInt();
-  int LedIntensity = ledSystemInfo[1].toInt();
-  String opHours = String(ledSystemInfo[2] + "-" + ledSystemInfo[3]);
-  Blynk.virtualWrite(V12, ledOpMode);
-  Blynk.virtualWrite(V14, LedIntensity);
-  Blynk.virtualWrite(V20, opHours);
+  // senderId can be deckLed OR indoorLed
+  String senderId = ledSystemInfo[0];
+  int ledOpMode = ledSystemInfo[1].toInt();
+  int ledIntensity = ledSystemInfo[2].toInt();
+  int ledStartHour = ledSystemInfo[3].toInt();
+  int ledStopHour = ledSystemInfo[4].toInt();
+
+  if(senderId == "deckLed"){
+      Blynk.virtualWrite(V12, ledOpMode);
+      Blynk.virtualWrite(V14, ledIntensity);
+      Blynk.virtualWrite(V20, ledStartHour);
+      Blynk.virtualWrite(V21, ledStopHour);
+      return;
+  }
+
+    if(senderId == "indoorLed"){
+
+      return;
+  }
+
 
   // int index = msg.indexOf(',');
   // int ledOpMode = msg.substring(0, index + 1).toInt();
   // int LedIntensity = msg.substring(index + 1).toInt();
 
-  if (ledOpMode != deckLedOperationModeFromApp)
-  {
-    deck_nodemcu_bridge.virtualWrite(V0, deckLedOperationModeFromApp);
-  }
+  // if (ledOpMode != deckLedOperationModeFromApp)
+  // {
+  //   deck_nodemcu_bridge.virtualWrite(V0, deckLedOperationModeFromApp);
+  // }
 
-  if (LedIntensity != deckLedIntensityFromApp)
-  {
-    deck_nodemcu_bridge.virtualWrite(V1, deckLedIntensityFromApp); // original was V0 which looks like a bug, update to V1 wait for test.
-  }
+  // if (ledIntensity != deckLedIntensityFromApp)
+  // {
+  //   deck_nodemcu_bridge.virtualWrite(V1, deckLedIntensityFromApp); 
+  // }
 }
 
 // // V14 is using to receive led intensity from app
@@ -309,78 +342,238 @@ BLYNK_WRITE(V19)
     // just send a signal to deck nodeMcu to pull all data, the value does not matter
     // then V13 should handle all incoming data and reflect to the App.
     deck_nodemcu_bridge.virtualWrite(V2, 1);
+    return;
   }
-  else if (ledSystemSelector == LED_INDOOR_SYSTEM)
+
+  if (ledSystemSelector == LED_INDOOR_SYSTEM)
   {
     // pull all from inddor LED nodeMcu
   }
 }
 
-//  20 terminal is for updating led system operationg hours, the format is 16:7
-WidgetTerminal terminalV20(V20);
+// V20 defines the led start hour in the afernoon. It is a slide bar on the app
 BLYNK_WRITE(V20)
 {
-  // the parse retruen a string array, [0] is start hour and [1] is stop hour
-  if(ledSystemSelector != LED_DECK_SYSTEM || ledSystemSelector != LED_INDOOR_SYSTEM){
-    return;
-  }
-
-  String strHour = param.asStr();
-  if (strHour.indexOf("-") == -1)
+  if (ledSystemSelector != LED_DECK_SYSTEM && ledSystemSelector != LED_INDOOR_SYSTEM)
   {
-    terminalV20.print("格式错误，标准模板 18-7");
-    terminalV20.flush();
     return;
   }
 
-  String *newHours = ledOpHourParser(strHour, 2);
-
-  if(newHours == NULL){
-    Serial.println("newHours ptr is NULL at line 325");
-    return;
-  }
-
-  // update rules are below
-  if (!isNumericString(newHours[0]) || !isNumericString(newHours[1]))
+  if (ledSystemSelector == LED_DECK_SYSTEM)
   {
-    terminalV20.print("格式错误，标准模板 18-7");
-    terminalV20.flush();
+    deckLedStartHour = param.asInt();
+    Serial.println(deckLedStartHour);
+    deck_nodemcu_bridge.virtualWrite(V3, deckLedStartHour);
     return;
   }
-
-  int startHour = newHours[0].toInt();
-  if (startHour < 16)
-    startHour = 16;
-  else if (startHour > 23)
-    startHour = 23;
-
-  int endHour = newHours[1].toInt();
-  if (endHour < 5)
-    endHour = 5;
-  else if (endHour > 9)
-    endHour = 9;
-
-  String msg = String(startHour) + "-" + String(endHour);
-  terminalV20.print(msg);
-  terminalV20.flush();
-
-  if(ledSystemSelector == LED_DECK_SYSTEM){
-    deck_nodemcu_bridge.virtualWrite(V3, msg); // V3 is the receving pin on Deck_node_mcu
-  }
-
 }
-/**********************FUNCTION***************************************************************************/
-void sync_bridges()
+
+// V21 defines the led stop hour in the afernoon.  It is a slide bar on the app
+BLYNK_WRITE(V21)
 {
-  // sync deck light operation mode and intensity after superclient reboots
+  if (ledSystemSelector != LED_DECK_SYSTEM && ledSystemSelector != LED_INDOOR_SYSTEM)
+  {
+    return;
+  }
+
+  if (ledSystemSelector == LED_DECK_SYSTEM)
+  {
+    deckLedStopHour = param.asInt();
+    deck_nodemcu_bridge.virtualWrite(V4, deckLedStopHour);
+    return;
+  }
+}
+
+// V22 for other mcu to pull data from superClient
+BLYNK_WRITE(V22)
+{
+  String msg = param.asStr();
+  if (msg == "deckLed")
+  {
+    // send all data related to deck led system
+    syncLedDeckSystemBySending();
+    return;
+  }
+
+  if (msg == "indoorLed")
+  {
+    return;
+  }
+}
+
+/*****************************BLYNK CONNECT**************************/
+BLYNK_CONNECTED()
+{
+  remote_nodemcu_bridge.setAuthToken("20e0a85a41fa4fc7b7c93a53576bb2c3"); // Place the AuthToken of the second hardware here
+  deck_nodemcu_bridge.setAuthToken("Ah-lQpqdle6DvDC68M0qhofsS-8fD4KU");   // Place the AuthToken of the second hardware here
+  //indoor_alarm_nodemcu_bridge.setAuthToken("s7u2S42iA0LXum1WqX36Vjwu7QE2OP1v");
+  // Blynk.syncAll();
+}
+
+void setup()
+{
+  pulse = new Led(D0);
+  watchdog = new Watchdog();
+  sonic1 = new SonicSensor(D6, D7);
+  sonic2 = new SonicSensor(D1, D2);
+  dhtSensor = new dht();
+  blockDisplay = new TM_display(D3, D4);
+  dt = new Datetime(ssid, pass);
+  pir = new Pir(10);
+  ldr = new LDR(A0);
+  pinMode(ledSwitch, OUTPUT);
+  digitalWrite(ledSwitch, LOW);
+  // garageLedSystem = new GarageLedSystem(mosffet, pir, ldr);
+
+  getRealtimeEvent = new IntervalEvent(60000, [&]() -> void { dt->updateHours(); });
+  sonicSensorEvent = new IntervalEvent(2000, sonicSensorEventWrapper);
+  dhtSensorEvent = new IntervalEvent(5000, dhtSensorEventWrapper);
+  drivewayEvent = new IntervalEvent(ONE_HOUR, drivewayEventWrapper);
+  MsgToAppHandler = new IntervalEvent(2000, MsgToAppHandlerWrapper);
+  drivewayWatchdogEvent = new IntervalEvent(1500, drivewayWatchdogEventWrapper);
+  deckWatchdogEvent = new IntervalEvent(1500, deckWatchdogEventWrapper);
+  updateAppTableEvent = new IntervalEvent(3000, updateAppTableEventWrapper);
+
+  syncBridgeEvent = new TimeoutEvent(10000, [&]() -> void { syncAllMcuBySending(); });
+  syncGeneralEvent = new TimeoutEvent(10000, [&]() -> void { syncAppLedSystemSelector(); });
+
+  debugEvent = new IntervalEvent(1500, debugEventWrapper);
+  // setup Serial port
+  Serial.begin(9600);
+
+  // setup blynk
+  Blynk.begin(auth, ssid, pass);
+  // initiate the table, V11 is a table on Blynk App
+  Blynk.virtualWrite(V11, "clr");
+  Blynk.virtualWrite(V11, "add", 1, "感应距离1", "无数据");
+  Blynk.virtualWrite(V11, "add", 2, "感应距离2", "无数据");
+  Blynk.virtualWrite(V11, "add", 3, "甲板控制系统", "无数据");
+  // if nodemcu reboots, check the driveway and send msg if needs.
+  drivewayEventWrapper();
+  // send values to relevant bridges, sync_bridge causes internet disconnect,
+  // a timeout event will handle this properly
+  //  ----------syncAllMcuBySending();---------------
+
+  // update time at the begining
+  // print a start message
+  if (dt)
+  {
+    dt->updateHours();
+  }
+  Serial.print("Current hour is: ");
+  Serial.println(dt->getHours());
+  Serial.println("Table is configured, ready to start");
+  Blynk.syncAll();
+} // setup ends here
+
+void loop()
+{
+  Blynk.run();
+  if (syncBridgeEvent)
+    syncBridgeEvent->start(&syncBridgeEvent);
+
+  if (syncGeneralEvent)
+  {
+    syncGeneralEvent->start(&syncGeneralEvent);
+  }
+
+  if (debugEvent) // working
+    debugEvent->start();
+
+  if (pulse) // working
+    pulse->blink();
+
+  if (watchdog) // working
+    watchdog->start();
+
+  if (getRealtimeEvent) // working
+    getRealtimeEvent->start();
+
+  if (sonicSensorEvent) // working
+    sonicSensorEvent->start();
+
+  if (dhtSensorEvent) //  working
+    dhtSensorEvent->start();
+
+  if (deckWatchdogEvent) // working
+    deckWatchdogEvent->start();
+
+  if (drivewayWatchdogEvent)
+    drivewayWatchdogEvent->start();
+
+  if (MsgToAppHandler) // working
+    MsgToAppHandler->start();
+
+  if (drivewayEvent) //working
+    drivewayEvent->start();
+
+  if (updateAppTableEvent) // working
+    updateAppTableEvent->start();
+
+  if (turnOffLedSwitchEvent)
+    turnOffLedSwitchEvent->start(&turnOffLedSwitchEvent);
+
+  if (ldr->getValue() < LIGHT_THRESHOLD_VALUE)
+  {
+    Serial.printf("1111.pir is: %d\n", pir->detect()); // do not delete this line, otherwise led does not turn off
+    if (pir->detect() == HIGH)
+    {
+      if (turnOffLedSwitchEvent == NULL)
+      {
+        digitalWrite(ledSwitch, HIGH);
+        turnOffLedSwitchEvent = new TimeoutEvent(20000, [&]() -> void { digitalWrite(ledSwitch, LOW); });
+      }
+      else
+      {
+        turnOffLedSwitchEvent->resetEventClock();
+      }
+    }
+  }
+  else
+  {
+    digitalWrite(ledSwitch, LOW);
+    if (turnOffLedSwitchEvent)
+      turnOffLedSwitchEvent->kill(&turnOffLedSwitchEvent);
+  }
+  // if(garageLedSystem)
+  // garageLedSystem->run();
+}
+
+/************************ part have not done yet ************************/
+/*
+(1) V1 receive data from driveway NodeMcu, V1 handles two things
+  - the outside nodemcu online or offline
+  - driveway is open or close(Done)
+
+(2) need to introduce real-time(Done)
+
+(3) code the part that driveway door needs to be closed within the time setup
+
+(4) code the msg replay to app about    Garage/driveway status, etc
+*/
+
+/*********************************************************************************************************/
+/**********************FUNCTION***************************************************************************/
+void syncLedDeckSystemBySending()
+{
   deck_nodemcu_bridge.virtualWrite(V0, deckLedOperationModeFromApp);
   deck_nodemcu_bridge.virtualWrite(V1, deckLedIntensityFromApp);
-  // Serial.println("sync all bridges get called");
+  deck_nodemcu_bridge.virtualWrite(V3, deckLedStartHour);
+  deck_nodemcu_bridge.virtualWrite(V4, deckLedStopHour);
 }
-void sync_general()
+
+void syncAllMcuBySending()
+{
+  syncLedDeckSystemBySending();
+}
+
+// send ledSystemSelector value to the App if the superclient restart
+void syncAppLedSystemSelector()
 {
   Blynk.virtualWrite(V19, ledSystemSelector); // send the value back to App for sync
 }
+
+// send all info related to deck led system
 
 void sonicSensorEventWrapper()
 {
@@ -429,7 +622,22 @@ void updateAppTableEventWrapper()
   Blynk.virtualWrite(V11, "update", 1, "感应距离1", sonic1->getDistance());
   Blynk.virtualWrite(V11, "update", 2, "感应距离2", sonic2->getDistance());
 
-  String msg = deckNodeMcuIsOnline ? "在线" : "离线";
+  String msg;
+  if (V11Toggler)
+  {
+    msg = deckNodeMcuIsOnline ? "在线" : "离线";
+  }
+  else
+  {
+    msg = String(deckLedStartHour) + "pm->" + String(deckLedStopHour) + " am";
+  }
+  // if deckNode is offline, do not need to toggle the info, keep displaying offline
+  if (!deckNodeMcuIsOnline)
+  {
+    Blynk.virtualWrite(V11, "update", 3, "甲板led", msg);
+    return;
+  }
+  V11Toggler = !V11Toggler;
   Blynk.virtualWrite(V11, "update", 3, "甲板led", msg);
 }
 
@@ -535,153 +743,3 @@ void debugEventWrapper()
   //    Serial.printf("D8 value  %d\n\n", digitalRead(D8));
 }
 /**********************************************************************************************************/
-
-/*****************************BLYNK CONNECT**************************/
-BLYNK_CONNECTED()
-{
-  remote_nodemcu_bridge.setAuthToken("20e0a85a41fa4fc7b7c93a53576bb2c3"); // Place the AuthToken of the second hardware here
-  deck_nodemcu_bridge.setAuthToken("Ah-lQpqdle6DvDC68M0qhofsS-8fD4KU");   // Place the AuthToken of the second hardware here
-  //indoor_alarm_nodemcu_bridge.setAuthToken("s7u2S42iA0LXum1WqX36Vjwu7QE2OP1v");
-  Blynk.syncAll();
-}
-
-void setup()
-{
-  pulse = new Led(D0);
-  watchdog = new Watchdog();
-  sonic1 = new SonicSensor(D6, D7);
-  sonic2 = new SonicSensor(D1, D2);
-  dhtSensor = new dht();
-  blockDisplay = new TM_display(D3, D4);
-  dt = new Datetime(ssid, pass);
-  pir = new Pir(10);
-  ldr = new LDR(A0);
-  pinMode(ledSwitch, OUTPUT);
-  digitalWrite(ledSwitch, LOW);
-  // garageLedSystem = new GarageLedSystem(mosffet, pir, ldr);
-
-  getRealtimeEvent = new IntervalEvent(60000, [&]() -> void { dt->updateHours(); });
-  sonicSensorEvent = new IntervalEvent(2000, sonicSensorEventWrapper);
-  dhtSensorEvent = new IntervalEvent(5000, dhtSensorEventWrapper);
-  drivewayEvent = new IntervalEvent(ONE_HOUR, drivewayEventWrapper);
-  MsgToAppHandler = new IntervalEvent(2000, MsgToAppHandlerWrapper);
-  drivewayWatchdogEvent = new IntervalEvent(1500, drivewayWatchdogEventWrapper);
-  deckWatchdogEvent = new IntervalEvent(1500, deckWatchdogEventWrapper);
-  updateAppTableEvent = new IntervalEvent(5000, updateAppTableEventWrapper);
-
-  syncBridgeEvent = new TimeoutEvent(15000, [&]() -> void { sync_bridges(); });
-  syncGeneralEvent = new TimeoutEvent(15000, [&]() -> void { sync_general(); });
-
-  debugEvent = new IntervalEvent(1500, debugEventWrapper);
-  // setup Serial port
-  Serial.begin(9600);
-
-  // setup blynk
-  Blynk.begin(auth, ssid, pass);
-  // initiate the table, V11 is a table on Blynk App
-  Blynk.virtualWrite(V11, "clr");
-  Blynk.virtualWrite(V11, "add", 1, "感应距离1", "test");
-  Blynk.virtualWrite(V11, "add", 2, "感应距离2", "test");
-  Blynk.virtualWrite(V11, "add", 3, "甲板控制系统", "test");
-  // if nodemcu reboots, check the driveway and send msg if needs.
-  drivewayEventWrapper();
-  // send values to relevant bridges, sync_bridge causes internet disconnect,
-  // a timeout event will handle this properly
-  //  ----------sync_bridges();---------------
-
-  // update time at the begining
-  // print a start message
-  if (dt)
-  {
-    dt->updateHours();
-  }
-  Serial.print("Current hour is: ");
-  Serial.println(dt->getHours());
-  Serial.println("Table is configured, ready to start");
-}
-
-void loop()
-{
-  Blynk.run();
-  if (syncBridgeEvent)
-    syncBridgeEvent->start(&syncBridgeEvent);
-
-  if (syncGeneralEvent)
-  {
-    syncGeneralEvent->start(&syncGeneralEvent);
-  }
-
-  if (debugEvent) // working
-    debugEvent->start();
-
-  if (pulse) // working
-    pulse->blink();
-
-  if (watchdog) // working
-    watchdog->start();
-
-  if (getRealtimeEvent) // working
-    getRealtimeEvent->start();
-
-  if (sonicSensorEvent) // working
-    sonicSensorEvent->start();
-
-  if (dhtSensorEvent) //  working 
-    dhtSensorEvent->start();
-
-  if (deckWatchdogEvent) // working
-    deckWatchdogEvent->start();
-
-  if (drivewayWatchdogEvent)
-    drivewayWatchdogEvent->start();
-
-  if (MsgToAppHandler) // working
-    MsgToAppHandler->start();
-
-  if (drivewayEvent) //working
-    drivewayEvent->start();
-
-  if (updateAppTableEvent) // working
-    updateAppTableEvent->start();
-
-  if (turnOffLedSwitchEvent)
-    turnOffLedSwitchEvent->start(&turnOffLedSwitchEvent);
-
-  if (ldr->getValue() < LIGHT_THRESHOLD_VALUE)
-  {
-     Serial.printf("1111.pir is: %d\n", pir->detect()); // do not delete this line, otherwise led does not turn off
-    if (pir->detect() == HIGH)
-    {
-      if (turnOffLedSwitchEvent == NULL)
-      {
-        digitalWrite(ledSwitch, HIGH);
-        turnOffLedSwitchEvent = new TimeoutEvent(20000, [&]() -> void { digitalWrite(ledSwitch, LOW); });
-      }
-      else
-      {
-        turnOffLedSwitchEvent->resetEventClock();
-      }
-    }
-  }
-  else
-  {
-    digitalWrite(ledSwitch, LOW);
-    if (turnOffLedSwitchEvent)
-      turnOffLedSwitchEvent->kill(&turnOffLedSwitchEvent);
-  }
-  // if(garageLedSystem)
-  // garageLedSystem->run();
-}
-
-/************************ part have not done yet ************************/
-/*
-(1) V1 receive data from driveway NodeMcu, V1 handles two things
-  - the outside nodemcu online or offline
-  - driveway is open or close(Done)
-
-(2) need to introduce real-time(Done)
-
-(3) code the part that driveway door needs to be closed within the time setup
-
-(4) code the msg replay to app about    Garage/driveway status, etc
-*/
