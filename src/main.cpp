@@ -29,12 +29,26 @@
 #include "../include/mosffet_lib/Mosffet.h"
 #include "../include/mosffet_lib/GarageLedSystem.h"
 #include "../include/pir_lib/Pir.h"
-#include "../include/LDR_lib/LDR.h"
+// #include "../include/LDR_lib/LDR.h"
 #include "../utilsTool/StringTools.cpp"
 
 /********CONST ***************/
 const String INDOOR_SYSTEM_ID = "indoorLed";
 const String DECK_SYSTEM_ID = "deckLed";
+
+
+const char *superClientToken = "oreBMF8O88yybTR2uWLrLly_cGqRt1DE";
+// public token: td2xBB3r_PM3ZnvsSnDUq_ykyLzfvtNB
+// local  token: oreBMF8O88yybTR2uWLrLly_cGqRt1DE
+const char *RemoteToken = "OgFV_WD9Z0LCz2Ih66BXxoDN6qAtm9u4";
+// public token: 20e0a85a41fa4fc7b7c93a53576bb2c3
+// local  token: OgFV_WD9Z0LCz2Ih66BXxoDN6qAtm9u4
+const char *deckToken = "R604IZ48t4elfnb0CovtxXgpgipN69FN";
+// public token:  Ah-lQpqdle6DvDC68M0qhofsS-8fD4KU
+// local  token:  R604IZ48t4elfnb0CovtxXgpgipN69FN
+const char *indoorToken = "bFM0IonFSGovu6XXkS0eFhixztHxktsY";
+// public token: s7u2S42iA0LXum1WqX36Vjwu7QE2OP1v
+// local  token:  bFM0IonFSGovu6XXkS0eFhixztHxktsY
 
 /*********************************Global**************************/
 byte garageWarnningCounter = 0; // if the counter reaches 6,
@@ -68,7 +82,8 @@ int indoorLedStopHour = 0;
 // 1 for deckLed system, 2 for indoor led, else is reserved.
 int ledSystemSelector = 1;
 
-
+String deckLedInfo = "";
+String indoorLedInfo = "";
 
 /***************************FUNCTION PROTOTYPE**************************/
 void syncLedDeckSystemBySending();
@@ -85,12 +100,14 @@ void MsgToAppHandlerWrapper();
 void deckWatchdogEventWrapper();
 void debugEventWrapper();
 void indoorWatchdogEventWrapper();
+void updateV127Data();
 
 /*********************************WIFI****************************/
-char auth[] = "td2xBB3r_PM3ZnvsSnDUq_ykyLzfvtNB";
-char ssid[] = "SPARK-5RUXSX";
-char pass[] = "ReliableSloth20VV";
-
+const char *auth = superClientToken;
+const char *ssid = "SPARK-5RUXSX";
+const char *pass = "ReliableSloth20VV";
+const char *blynkserver = "192.168.1.132";
+int port = 8080;
 // test:  UPpQ01aooX9O3q3ICgkKEDn_HpJeThPi
 // production: td2xBB3r_PM3ZnvsSnDUq_ykyLzfvtNB
 
@@ -98,7 +115,7 @@ char pass[] = "ReliableSloth20VV";
 Pir *pir = NULL;
 
 /************************LDR sensor***************************************/
-LDR *ldr = NULL;
+// LDR *ldr = NULL;
 
 /************************Mosffet***************************************/
 // Mosffet *mosffet = NULL;
@@ -244,6 +261,7 @@ BLYNK_WRITE(V12)
     indoorLedOpMode = opMode;
     indoor_nodemcu_bridge.virtualWrite(V0, indoorLedOpMode);
   }
+  updateV127Data();
 }
 
 // // v13 is using to receive data from deck nodemcu <------or more nodemcu----> to check if the system if online or not.
@@ -285,6 +303,7 @@ BLYNK_WRITE(V14)
   {
     deckLedLight = param.asInt();
     deck_nodemcu_bridge.virtualWrite(V1, deckLedLight);
+    updateV127Data();
     return;
   }
 
@@ -292,6 +311,7 @@ BLYNK_WRITE(V14)
   {
     indoorLedLight = param.asInt();
     indoor_nodemcu_bridge.virtualWrite(V1, indoorLedLight);
+    updateV127Data();
     return;
   }
 }
@@ -300,19 +320,20 @@ BLYNK_WRITE(V14)
 BLYNK_WRITE(V15)
 {
   String sysId = param.asStr();
-  if(sysId == DECK_SYSTEM_ID){
+  if (sysId == DECK_SYSTEM_ID)
+  {
     deckWatchdogCount = 0;
     // receives heatbeat from deckNodeMcu
     deckMcuOnline = true;
     return;
   }
 
-  if(sysId == INDOOR_SYSTEM_ID){
+  if (sysId == INDOOR_SYSTEM_ID)
+  {
     indoorWatchdogCount = 0;
     indoorMcuOnline = true;
     return;
   }
-
 }
 
 // // V16 taking msg from user App and send to indoor nodemcu to turn ON or OFF the alarm.
@@ -377,14 +398,16 @@ BLYNK_WRITE(V20)
     deckLedStartHour = param.asInt();
     // Serial.println(deckLedStartHour);
     deck_nodemcu_bridge.virtualWrite(V3, deckLedStartHour);
+    updateV127Data();
     return;
   }
 
-    if (ledSystemSelector == LED_INDOOR_SYSTEM)
+  if (ledSystemSelector == LED_INDOOR_SYSTEM)
   {
     indoorLedStartHour = param.asInt();
     Serial.println(indoorLedStartHour);
     indoor_nodemcu_bridge.virtualWrite(V3, indoorLedStartHour);
+    updateV127Data();
     return;
   }
 }
@@ -396,6 +419,7 @@ BLYNK_WRITE(V21)
   {
     deckLedStopHour = param.asInt();
     deck_nodemcu_bridge.virtualWrite(V4, deckLedStopHour);
+    updateV127Data();
     return;
   }
 
@@ -403,6 +427,7 @@ BLYNK_WRITE(V21)
   {
     indoorLedStopHour = param.asInt();
     indoor_nodemcu_bridge.virtualWrite(V4, indoorLedStopHour);
+    updateV127Data();
     return;
   }
 }
@@ -425,21 +450,49 @@ BLYNK_WRITE(V22)
   }
 }
 
+// V127 stores info of deckLed with indexof 0 and indoorled with index of 1
+BLYNK_WRITE(V127)
+{
+  deckLedInfo = param[0].asStr();
+  indoorLedInfo = param[1].asStr();
+
+  // info structure
+  // (1) system_id   [0]
+  // (2) opMode      [1]
+  // (3) light       [2]
+  // (4) startHour   [3]
+  // (5) stopHour    [4]
+  String *info = LedSystemInfoParser(deckLedInfo, 5);
+// update info on deck led system
+  deckLedOpMode = info[1].toInt();
+  deckLedLight = info[2].toInt();
+  deckLedStartHour = info[3].toInt();
+  deckLedStopHour = info[4].toInt();
+  syncLedDeckSystemBySending();
+
+// update info on indoor led system
+  info = LedSystemInfoParser(indoorLedInfo, 5);
+  indoorLedOpMode = info[1].toInt();
+  indoorLedLight = info[2].toInt();
+  indoorLedStartHour = info[3].toInt();
+  indoorLedStopHour = info[4].toInt();
+  syncLedIndoorSystemBySending();
+}
+
 /*****************************BLYNK CONNECT**************************/
 BLYNK_CONNECTED()
 {
-  remote_nodemcu_bridge.setAuthToken("20e0a85a41fa4fc7b7c93a53576bb2c3"); // Place the AuthToken of the second hardware here
-  deck_nodemcu_bridge.setAuthToken("Ah-lQpqdle6DvDC68M0qhofsS-8fD4KU");   // Place the AuthToken of the second hardware here
-  indoor_nodemcu_bridge.setAuthToken("s7u2S42iA0LXum1WqX36Vjwu7QE2OP1v");
-  // Blynk.syncAll();
+  remote_nodemcu_bridge.setAuthToken(RemoteToken); // Place the AuthToken of the second hardware here
+  deck_nodemcu_bridge.setAuthToken(deckToken);     // Place the AuthToken of the second hardware here
+  indoor_nodemcu_bridge.setAuthToken(indoorToken);
 }
 
 void setup()
 {
-    // setup Serial port
+  // setup Serial port
   Serial.begin(9600);
-   // setup blynk
-  Blynk.begin(auth, ssid, pass);
+  // setup blynk
+  Blynk.begin(auth, ssid, pass, blynkserver, port);
   pulse = new Led(D0);
   watchdog = new Watchdog();
   sonic1 = new SonicSensor(D6, D7);
@@ -448,7 +501,7 @@ void setup()
   blockDisplay = new TM_display(D3, D4);
   dt = new Datetime(ssid, pass);
   pir = new Pir(10);
-  ldr = new LDR(A0);
+  // ldr = new LDR(A0);
   pinMode(ledSwitch, OUTPUT);
   digitalWrite(ledSwitch, LOW);
   // garageLedSystem = new GarageLedSystem(mosffet, pir, ldr);
@@ -469,8 +522,6 @@ void setup()
   syncGeneralEvent = new TimeoutEvent(10000, [&]() -> void { syncAppLedSystemSelector(); });
   debugEvent = new IntervalEvent(1500, debugEventWrapper);
 
-
- 
   // initiate the table, V11 is a table on Blynk App
   Blynk.virtualWrite(V11, "clr");
   Blynk.virtualWrite(V11, "add", 1, "感应距离1", "无数据");
@@ -492,7 +543,9 @@ void setup()
   Serial.print("Current hour is: ");
   Serial.println(dt->getHours());
   Serial.println("Table is configured, ready to start");
+
   Blynk.syncAll();
+  // Blynk.syncVirtual(V127);
 } // setup ends here
 
 void loop()
@@ -542,31 +595,31 @@ void loop()
   if (turnOffLedSwitchEvent)
     turnOffLedSwitchEvent->start(&turnOffLedSwitchEvent);
 
-  if(indoorwatchDogEvent)
-  indoorwatchDogEvent->start();
+  if (indoorwatchDogEvent)
+    indoorwatchDogEvent->start();
 
-  if (ldr->getValue() < LIGHT_THRESHOLD_VALUE)
+  // if (ldr->getValue() < LIGHT_THRESHOLD_VALUE)
+  // {
+  Serial.printf("pir is: %d\n", pir->detect()); // do not delete this line, otherwise led does not turn off
+  if (pir->detect() == HIGH)
   {
-    Serial.printf("1111.pir is: %d\n", pir->detect()); // do not delete this line, otherwise led does not turn off
-    if (pir->detect() == HIGH)
+    if (turnOffLedSwitchEvent == NULL)
     {
-      if (turnOffLedSwitchEvent == NULL)
-      {
-        digitalWrite(ledSwitch, HIGH);
-        turnOffLedSwitchEvent = new TimeoutEvent(20000, [&]() -> void { digitalWrite(ledSwitch, LOW); });
-      }
-      else
-      {
-        turnOffLedSwitchEvent->resetEventClock();
-      }
+      digitalWrite(ledSwitch, HIGH);
+      turnOffLedSwitchEvent = new TimeoutEvent(20000, [&]() -> void { digitalWrite(ledSwitch, LOW); });
+    }
+    else
+    {
+      turnOffLedSwitchEvent->resetEventClock();
     }
   }
-  else
-  {
-    digitalWrite(ledSwitch, LOW);
-    if (turnOffLedSwitchEvent)
-      turnOffLedSwitchEvent->kill(&turnOffLedSwitchEvent);
-  }
+  // }
+  // else
+  // {
+  //   digitalWrite(ledSwitch, LOW);
+  //   if (turnOffLedSwitchEvent)
+  //     turnOffLedSwitchEvent->kill(&turnOffLedSwitchEvent);
+  // }
   // if(garageLedSystem)
   // garageLedSystem->run();
 }
@@ -600,6 +653,22 @@ void syncLedIndoorSystemBySending()
   indoor_nodemcu_bridge.virtualWrite(V1, indoorLedLight);
   indoor_nodemcu_bridge.virtualWrite(V3, indoorLedStartHour);
   indoor_nodemcu_bridge.virtualWrite(V4, indoorLedStopHour);
+}
+
+void syncLedDeckSystemBySending(int op, int light, int startHour, int stopHour)
+{
+  deck_nodemcu_bridge.virtualWrite(V0, op);
+  deck_nodemcu_bridge.virtualWrite(V1, light);
+  deck_nodemcu_bridge.virtualWrite(V3, startHour);
+  deck_nodemcu_bridge.virtualWrite(V4, stopHour);
+}
+
+void syncLedIndoorSystemBySending(int op, int light, int startHour, int stopHour)
+{
+  indoor_nodemcu_bridge.virtualWrite(V0, op);
+  indoor_nodemcu_bridge.virtualWrite(V1, light);
+  indoor_nodemcu_bridge.virtualWrite(V3, startHour);
+  indoor_nodemcu_bridge.virtualWrite(V4, stopHour);
 }
 
 void syncAllMcuBySending()
@@ -673,7 +742,7 @@ void updateAppTableEventWrapper()
     Blynk.virtualWrite(V11, "update", 3, "甲板led", msg);
   }
 
-  if(!indoorMcuOnline)
+  if (!indoorMcuOnline)
   {
     Blynk.virtualWrite(V11, "update", 4, "室内led", "离线");
   }
@@ -794,5 +863,30 @@ void debugEventWrapper()
   // // if(mosffet)
   // //  Serial.printf("mosffet value  %d\n\n", mosffet->_currentPwm);
   //    Serial.printf("D8 value  %d\n\n", digitalRead(D8));
+}
+
+void updateV127Data()
+{
+    deckLedInfo = DECK_SYSTEM_ID +
+                         "," +
+                         String(deckLedOpMode) +
+                         "," +
+                         String(deckLedLight) +
+                         "," +
+                         String(deckLedStartHour) +
+                         "," +
+                         String(deckLedStopHour);
+  
+    indoorLedInfo = INDOOR_SYSTEM_ID +
+                           "," +
+                           String(indoorLedOpMode) +
+                           "," +
+                           String(indoorLedLight) +
+                           "," +
+                           String(indoorLedStartHour) +
+                           "," +
+                           String(indoorLedStopHour);
+  
+  Blynk.virtualWrite(V127, deckLedInfo, indoorLedInfo);
 }
 /**********************************************************************************************************/
