@@ -13,7 +13,6 @@
 #include <Ticker.h>
 #include <TM1637Display.h>
 #include <NTPClient.h>
-#include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
 
 #include "../lib/DHT/dht.h"
