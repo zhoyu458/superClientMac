@@ -35,7 +35,6 @@
 const String INDOOR_SYSTEM_ID = "indoorLed";
 const String DECK_SYSTEM_ID = "deckLed";
 
-
 const char *superClientToken = "oreBMF8O88yybTR2uWLrLly_cGqRt1DE";
 // public token: td2xBB3r_PM3ZnvsSnDUq_ykyLzfvtNB
 // local  token: oreBMF8O88yybTR2uWLrLly_cGqRt1DE
@@ -50,7 +49,12 @@ const char *indoorToken = "bFM0IonFSGovu6XXkS0eFhixztHxktsY";
 // local  token:  bFM0IonFSGovu6XXkS0eFhixztHxktsY
 
 /*********************************Global**************************/
-byte garageWarnningCounter = 0; // if the counter reaches 6,
+// byte garageWarnningCounter = 0; // if the counter reaches 6,
+byte garageOpenCounter = 0;     // count plus 1 if measured distance is less then the value
+byte garageCloseCounter = 0;    // count plus 1 if measured distance is less then the value
+byte sonicCounter = 0;          // count plus 1 every time sonic sensor take measurement. planning to sample 10 measurement then check if garage is open or closed
+// this is due to unstable meansurement from the sonic sensor.
+
 bool garageNeverReport = true;
 bool garageIsClosed = true;
 // default delay time is 15 mins after the initial report
@@ -100,6 +104,7 @@ void deckWatchdogEventWrapper();
 void debugEventWrapper();
 void indoorWatchdogEventWrapper();
 void updateV127Data();
+void debugTerminalPrintEventWrapper();
 
 /*********************************WIFI****************************/
 const char *auth = superClientToken;
@@ -448,7 +453,8 @@ BLYNK_WRITE(V22)
     return;
   }
 }
-
+WidgetTerminal debugTerminal(V102);
+IntervalEvent *debugTerminalPrintEvent = NULL;
 // V127 stores info of deckLed with indexof 0 and indoorled with index of 1
 BLYNK_WRITE(V127)
 {
@@ -462,14 +468,14 @@ BLYNK_WRITE(V127)
   // (4) startHour   [3]
   // (5) stopHour    [4]
   String *info = LedSystemInfoParser(deckLedInfo, 5);
-// update info on deck led system
+  // update info on deck led system
   deckLedOpMode = info[1].toInt();
   deckLedLight = info[2].toInt();
   deckLedStartHour = info[3].toInt();
   deckLedStopHour = info[4].toInt();
   syncLedDeckSystemBySending();
 
-// update info on indoor led system
+  // update info on indoor led system
   info = LedSystemInfoParser(indoorLedInfo, 5);
   indoorLedOpMode = info[1].toInt();
   indoorLedLight = info[2].toInt();
@@ -478,6 +484,9 @@ BLYNK_WRITE(V127)
   syncLedIndoorSystemBySending();
 }
 
+// the syncEvent trigger 30 sec after the system start to make sure sync is done properly to other nodeMcu
+
+TimeoutEvent *syncEvent = NULL;
 /*****************************BLYNK CONNECT**************************/
 BLYNK_CONNECTED()
 {
@@ -505,7 +514,8 @@ void setup()
   digitalWrite(ledSwitch, LOW);
   // garageLedSystem = new GarageLedSystem(mosffet, pir, ldr);
 
-  getRealtimeEvent = new IntervalEvent(60000, [&]() -> void { dt->updateHours(); });
+  getRealtimeEvent = new IntervalEvent(60000, [&]() -> void
+                                       { dt->updateHours(); });
   sonicSensorEvent = new IntervalEvent(2000, sonicSensorEventWrapper);
   dhtSensorEvent = new IntervalEvent(5000, dhtSensorEventWrapper);
   drivewayEvent = new IntervalEvent(ONE_HOUR, drivewayEventWrapper);
@@ -517,9 +527,15 @@ void setup()
 
   updateAppTableEvent = new IntervalEvent(3000, updateAppTableEventWrapper);
 
-  syncBridgeEvent = new TimeoutEvent(10000, [&]() -> void { syncAllMcuBySending(); });
-  syncGeneralEvent = new TimeoutEvent(10000, [&]() -> void { syncAppLedSystemSelector(); });
+  syncBridgeEvent = new TimeoutEvent(10000, [&]() -> void
+                                     { syncAllMcuBySending(); });
+  syncGeneralEvent = new TimeoutEvent(10000, [&]() -> void
+                                      { syncAppLedSystemSelector(); });
   debugEvent = new IntervalEvent(1500, debugEventWrapper);
+
+  debugTerminalPrintEvent = new IntervalEvent(5000, debugTerminalPrintEventWrapper);
+  syncEvent = new TimeoutEvent(30000, [&]() -> void
+                               { Blynk.syncAll(); });
 
   // initiate the table, V11 is a table on Blynk App
   Blynk.virtualWrite(V11, "clr");
@@ -561,6 +577,8 @@ void loop()
   if (debugEvent) // working
     debugEvent->start();
 
+  if (debugTerminalPrintEvent)
+    debugTerminalPrintEvent->start();
   if (pulse) // working
     pulse->blink();
 
@@ -597,6 +615,9 @@ void loop()
   if (indoorwatchDogEvent)
     indoorwatchDogEvent->start();
 
+  if (syncEvent)
+    syncEvent->start(&syncEvent);
+
   // if (ldr->getValue() < LIGHT_THRESHOLD_VALUE)
   // {
   Serial.printf("pir is: %d\n", pir->detect()); // do not delete this line, otherwise led does not turn off
@@ -605,7 +626,8 @@ void loop()
     if (turnOffLedSwitchEvent == NULL)
     {
       digitalWrite(ledSwitch, HIGH);
-      turnOffLedSwitchEvent = new TimeoutEvent(20000, [&]() -> void { digitalWrite(ledSwitch, LOW); });
+      turnOffLedSwitchEvent = new TimeoutEvent(20000, [&]() -> void
+                                               { digitalWrite(ledSwitch, LOW); });
     }
     else
     {
@@ -689,41 +711,78 @@ void sonicSensorEventWrapper()
   if (garageReportEvent)
     garageReportEvent->start(&garageReportEvent);
 
-  sonic1->getDistance() < GARAGE_WARNNING_DISTANCE ? garageWarnningCounter++ : garageWarnningCounter = 0;
-  sonic2->getDistance() < GARAGE_WARNNING_DISTANCE ? garageWarnningCounter++ : garageWarnningCounter = 0;
+  sonic1->getDistance() < GARAGE_WARNNING_DISTANCE ? garageOpenCounter++ : garageCloseCounter++;
+  sonic2->getDistance() < GARAGE_WARNNING_DISTANCE ? garageOpenCounter++ : garageCloseCounter++;
+  sonicCounter++;
+  if (sonicCounter == 12)
+  {
+    if (garageCloseCounter >= 8)
+    {
+      // garageWarnningCounter = 0;
+      garageIsClosed = true;
+      garageNeverReport = true;
+      if (garageReportEvent)
+      {
+        garageReportEvent->kill(&garageReportEvent);
+      }
+    }
+    else
+    {
+      garageIsClosed = false;
+      // garageWarnningCounter = 10;
+      if (garageNeverReport)
+      {
+        Blynk.notify("车库门被打开，请注意！"); //comment out for debugging
+        garageNeverReport = false;
+      }
+      else // garage has reported before
+      {
+        if (garageReportEvent == NULL)
+        {
+          garageReportEvent = new TimeoutEvent(garageReportDelayInMillis, []() -> void
+                                               { Blynk.notify("车库门被打开，请注意！"); }); //Blynk.notify("车库门被打开，请注意！");
+        }
+      }
+    }
+    sonicCounter = 0;
+    garageOpenCounter=0;
+    garageCloseCounter=0;
+  }
+
 
   // Serial.printf("garageWarnningCounter is %d \n", garageWarnningCounter);
 
   // send notification to app user
-  if (garageWarnningCounter >= 10)
-  {
-    garageIsClosed = false;
-    garageWarnningCounter = 10;
-    if (garageNeverReport)
-    {
-      Blynk.notify("车库门被打开，请注意！"); //comment out for debugging
-      garageNeverReport = false;
-    }
-    else // garage has reported before
-    {
-      if (garageReportEvent == NULL)
-      {
-        garageReportEvent = new TimeoutEvent(garageReportDelayInMillis, []() -> void { Blynk.notify("车库门被打开，请注意！"); }); //Blynk.notify("车库门被打开，请注意！");
-      }
-    }
-  }
-  // garageWarnningCounter <= 0, garage door is fully closed
-  else if (garageWarnningCounter <= 0)
-  {
-    garageWarnningCounter = 0;
-    garageIsClosed = true;
-    garageNeverReport = true;
-    if (garageReportEvent)
-    {
-      garageReportEvent->kill(&garageReportEvent);
-    }
-  }
-}
+//   if (garageWarnningCounter >= 10)
+//   {
+//     garageIsClosed = false;
+//     garageWarnningCounter = 10;
+//     if (garageNeverReport)
+//     {
+//       Blynk.notify("车库门被打开，请注意！"); //comment out for debugging
+//       garageNeverReport = false;
+//     }
+//     else // garage has reported before
+//     {
+//       if (garageReportEvent == NULL)
+//       {
+//         garageReportEvent = new TimeoutEvent(garageReportDelayInMillis, []() -> void
+//                                              { Blynk.notify("车库门被打开，请注意！"); }); //Blynk.notify("车库门被打开，请注意！");
+//       }
+//     }
+//   }
+//   // garageWarnningCounter <= 0, garage door is fully closed
+//   else if (garageWarnningCounter <= 0)
+//   {
+//     garageWarnningCounter = 0;
+//     garageIsClosed = true;
+//     garageNeverReport = true;
+//     if (garageReportEvent)
+//     {
+//       garageReportEvent->kill(&garageReportEvent);
+//     }
+//   }
+}  // this is the end of the function
 
 void updateAppTableEventWrapper()
 {
@@ -866,26 +925,34 @@ void debugEventWrapper()
 
 void updateV127Data()
 {
-    deckLedInfo = DECK_SYSTEM_ID +
-                         "," +
-                         String(deckLedOpMode) +
-                         "," +
-                         String(deckLedLight) +
-                         "," +
-                         String(deckLedStartHour) +
-                         "," +
-                         String(deckLedStopHour);
-  
-    indoorLedInfo = INDOOR_SYSTEM_ID +
-                           "," +
-                           String(indoorLedOpMode) +
-                           "," +
-                           String(indoorLedLight) +
-                           "," +
-                           String(indoorLedStartHour) +
-                           "," +
-                           String(indoorLedStopHour);
-  
+  deckLedInfo = DECK_SYSTEM_ID +
+                "," +
+                String(deckLedOpMode) +
+                "," +
+                String(deckLedLight) +
+                "," +
+                String(deckLedStartHour) +
+                "," +
+                String(deckLedStopHour);
+
+  indoorLedInfo = INDOOR_SYSTEM_ID +
+                  "," +
+                  String(indoorLedOpMode) +
+                  "," +
+                  String(indoorLedLight) +
+                  "," +
+                  String(indoorLedStartHour) +
+                  "," +
+                  String(indoorLedStopHour);
+  // Blynk.virtualWrite(V127, "", ""); do not uncomment this line
   Blynk.virtualWrite(V127, deckLedInfo, indoorLedInfo);
+}
+
+void debugTerminalPrintEventWrapper()
+{
+  debugTerminal.println(deckLedInfo);
+  debugTerminal.println();
+  debugTerminal.println(indoorLedInfo);
+  debugTerminal.println("-----------");
 }
 /**********************************************************************************************************/
