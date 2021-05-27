@@ -951,7 +951,6 @@ void updateV127Data()
 void debugTerminalPrintEventWrapper()
 {
   debugTerminal.println(deckLedInfo);
-  debugTerminal.println();
   debugTerminal.println(indoorLedInfo);
   debugTerminal.println("-----------");
 }
