@@ -8,6 +8,9 @@
 #define LIGHT_THRESHOLD_VALUE 1200 // more light, greater value
 #define LED_DECK_SYSTEM 1
 #define LED_INDOOR_SYSTEM 2
+
+#define LED_GARAGE_SYSTEM 3
+
 #include <ESP8266WiFi.h>
 #include <BlynkSimpleEsp8266.h>
 #include <Ticker.h>
@@ -34,6 +37,7 @@
 /********CONST ***************/
 const String INDOOR_SYSTEM_ID = "indoorLed";
 const String DECK_SYSTEM_ID = "deckLed";
+const String GARAGE_SYSTEM_ID = "garageLed";
 
 const char *superClientToken = "oreBMF8O88yybTR2uWLrLly_cGqRt1DE";
 // public token: td2xBB3r_PM3ZnvsSnDUq_ykyLzfvtNB
@@ -50,9 +54,9 @@ const char *indoorToken = "bFM0IonFSGovu6XXkS0eFhixztHxktsY";
 
 /*********************************Global**************************/
 // byte garageWarnningCounter = 0; // if the counter reaches 6,
-byte garageOpenCounter = 0;     // count plus 1 if measured distance is less then the value
-byte garageCloseCounter = 0;    // count plus 1 if measured distance is less then the value
-byte sonicCounter = 0;          // count plus 1 every time sonic sensor take measurement. planning to sample 10 measurement then check if garage is open or closed
+byte garageOpenCounter = 0;  // count plus 1 if measured distance is less then the value
+byte garageCloseCounter = 0; // count plus 1 if measured distance is less then the value
+byte sonicCounter = 0;       // count plus 1 every time sonic sensor take measurement. planning to sample 10 measurement then check if garage is open or closed
 // this is due to unstable meansurement from the sonic sensor.
 
 bool garageNeverReport = true;
@@ -80,6 +84,16 @@ int indoorWatchdogCount = 0; // deckWatchdog status display "offline" when the v
 int indoorLedStartHour = 0;
 int indoorLedStopHour = 0;
 
+// 0: off, 1: ON 2: auto
+// led in the garage only take operation mode, no other paramter
+// set auto as the default mode
+int garageLedOpMode = 2;
+int garageLedLight = 240; // the value does not mean anything
+int garageLedStartHour = 16; // the value does not mean anything
+int garageLedStopHour = 4; // the value does not mean anything
+// the var is for solving garage led does not turn off from hard_on to auto
+bool garageLedOpModeFromHardOnToAutoTransition = false;  
+
 // The selector is used for selecting a certian led system<indoorLed or deckLed or ...> for status updating
 // like brightness, opMode and etc.
 // 1 for deckLed system, 2 for indoor led, else is reserved.
@@ -87,12 +101,14 @@ int ledSystemSelector = 1;
 
 String deckLedInfo = "";
 String indoorLedInfo = "";
+String garageLedInfo = "";
 
 /***************************FUNCTION PROTOTYPE**************************/
 void syncLedDeckSystemBySending();
 void syncAllMcuBySending();
 void syncLedIndoorSystemBySending();
 void syncAppLedSystemSelector();
+void syncLedGarageSystem();
 
 void sonicSensorEventWrapper();
 void updateAppTableEventWrapper();
@@ -246,7 +262,7 @@ BLYNK_WRITE(V10)
 BLYNK_WRITE(V12)
 {
   // 1 for deck led. 2 for indoor led
-  if (ledSystemSelector != 1 && ledSystemSelector != 2)
+  if (ledSystemSelector != 1 && ledSystemSelector != 2 && ledSystemSelector != 3)
     return;
 
   int opMode = param.asInt();
@@ -264,6 +280,10 @@ BLYNK_WRITE(V12)
   {
     indoorLedOpMode = opMode;
     indoor_nodemcu_bridge.virtualWrite(V0, indoorLedOpMode);
+  }
+  else if (ledSystemSelector == 3)
+  {
+    garageLedOpMode = opMode;
   }
   updateV127Data();
 }
@@ -387,6 +407,11 @@ BLYNK_WRITE(V19)
     indoor_nodemcu_bridge.virtualWrite(V2, 1);
     return;
   }
+
+  // The ledSystemSelect will be 254 if reach to this line, we force select = LED_GARAGE_SYSTEM
+  ledSystemSelector = LED_GARAGE_SYSTEM;
+  syncLedGarageSystem();
+  // pull the operation status the LED_GARAGE_SYSTEM
 }
 
 // V20 defines the led start hour in the afernoon. It is a slide bar on the app
@@ -460,6 +485,7 @@ BLYNK_WRITE(V127)
 {
   deckLedInfo = param[0].asStr();
   indoorLedInfo = param[1].asStr();
+  garageLedInfo = param[2].asStr();
 
   // info structure
   // (1) system_id   [0]
@@ -482,6 +508,15 @@ BLYNK_WRITE(V127)
   indoorLedStartHour = info[3].toInt();
   indoorLedStopHour = info[4].toInt();
   syncLedIndoorSystemBySending();
+
+  // update info on garage led system
+  info = LedSystemInfoParser(garageLedInfo, 5);
+  // led garage system is direct link to the nodemcu
+  garageLedOpMode = info[1].toInt();
+  garageLedLight = info[2].toInt();
+  garageLedStartHour = info[3].toInt();
+  garageLedStopHour = info[4].toInt();
+  syncLedGarageSystem();
 }
 
 // the syncEvent trigger 30 sec after the system start to make sure sync is done properly to other nodeMcu
@@ -619,21 +654,42 @@ void loop()
     syncEvent->start(&syncEvent);
 
   // if (ldr->getValue() < LIGHT_THRESHOLD_VALUE)
-  // {
-  Serial.printf("pir is: %d\n", pir->detect()); // do not delete this line, otherwise led does not turn off
-  if (pir->detect() == HIGH)
+
+  if (garageLedOpMode == 1)
   {
-    if (turnOffLedSwitchEvent == NULL)
-    {
-      digitalWrite(ledSwitch, HIGH);
-      turnOffLedSwitchEvent = new TimeoutEvent(20000, [&]() -> void
-                                               { digitalWrite(ledSwitch, LOW); });
+    if(turnOffLedSwitchEvent) turnOffLedSwitchEvent->kill(&turnOffLedSwitchEvent);
+    digitalWrite(ledSwitch, LOW);
+  }
+  else if (garageLedOpMode == 2)
+  {
+    if(turnOffLedSwitchEvent) turnOffLedSwitchEvent->kill(&turnOffLedSwitchEvent);
+    digitalWrite(ledSwitch, HIGH);
+    garageLedOpModeFromHardOnToAutoTransition = true;
+    
+  }
+  else if (garageLedOpMode == 3)
+  {
+    if(garageLedOpModeFromHardOnToAutoTransition == true){
+      digitalWrite(ledSwitch, LOW);
+      garageLedOpModeFromHardOnToAutoTransition = false;
     }
-    else
+    Serial.printf("pir is: %d\n", pir->detect()); // do not delete this line, otherwise led does not turn off
+    if (pir->detect() == HIGH)
     {
-      turnOffLedSwitchEvent->resetEventClock();
+      if (turnOffLedSwitchEvent == NULL)
+      {
+        digitalWrite(ledSwitch, HIGH);
+        turnOffLedSwitchEvent = new TimeoutEvent(20000, [&]() -> void
+                                                 { digitalWrite(ledSwitch, LOW); });
+      }
+      else
+      {
+        turnOffLedSwitchEvent->resetEventClock();
+      }
     }
   }
+  // {
+
   // }
   // else
   // {
@@ -692,10 +748,21 @@ void syncLedIndoorSystemBySending(int op, int light, int startHour, int stopHour
   indoor_nodemcu_bridge.virtualWrite(V4, stopHour);
 }
 
+void syncLedGarageSystem()
+{
+  // garage led is direct connect to the nodeMcu, so Virtual pin number is different from above
+  Blynk.virtualWrite(V12, garageLedOpMode);
+  Blynk.virtualWrite(V14, garageLedLight);
+  Blynk.virtualWrite(V20, garageLedStartHour);
+  Blynk.virtualWrite(V21, garageLedStopHour);
+}
+
 void syncAllMcuBySending()
 {
   syncLedDeckSystemBySending();
   syncLedIndoorSystemBySending();
+  syncLedGarageSystem();
+
 }
 
 // send ledSystemSelector value to the App if the superclient restart
@@ -745,44 +812,43 @@ void sonicSensorEventWrapper()
       }
     }
     sonicCounter = 0;
-    garageOpenCounter=0;
-    garageCloseCounter=0;
+    garageOpenCounter = 0;
+    garageCloseCounter = 0;
   }
-
 
   // Serial.printf("garageWarnningCounter is %d \n", garageWarnningCounter);
 
   // send notification to app user
-//   if (garageWarnningCounter >= 10)
-//   {
-//     garageIsClosed = false;
-//     garageWarnningCounter = 10;
-//     if (garageNeverReport)
-//     {
-//       Blynk.notify("车库门被打开，请注意！"); //comment out for debugging
-//       garageNeverReport = false;
-//     }
-//     else // garage has reported before
-//     {
-//       if (garageReportEvent == NULL)
-//       {
-//         garageReportEvent = new TimeoutEvent(garageReportDelayInMillis, []() -> void
-//                                              { Blynk.notify("车库门被打开，请注意！"); }); //Blynk.notify("车库门被打开，请注意！");
-//       }
-//     }
-//   }
-//   // garageWarnningCounter <= 0, garage door is fully closed
-//   else if (garageWarnningCounter <= 0)
-//   {
-//     garageWarnningCounter = 0;
-//     garageIsClosed = true;
-//     garageNeverReport = true;
-//     if (garageReportEvent)
-//     {
-//       garageReportEvent->kill(&garageReportEvent);
-//     }
-//   }
-}  // this is the end of the function
+  //   if (garageWarnningCounter >= 10)
+  //   {
+  //     garageIsClosed = false;
+  //     garageWarnningCounter = 10;
+  //     if (garageNeverReport)
+  //     {
+  //       Blynk.notify("车库门被打开，请注意！"); //comment out for debugging
+  //       garageNeverReport = false;
+  //     }
+  //     else // garage has reported before
+  //     {
+  //       if (garageReportEvent == NULL)
+  //       {
+  //         garageReportEvent = new TimeoutEvent(garageReportDelayInMillis, []() -> void
+  //                                              { Blynk.notify("车库门被打开，请注意！"); }); //Blynk.notify("车库门被打开，请注意！");
+  //       }
+  //     }
+  //   }
+  //   // garageWarnningCounter <= 0, garage door is fully closed
+  //   else if (garageWarnningCounter <= 0)
+  //   {
+  //     garageWarnningCounter = 0;
+  //     garageIsClosed = true;
+  //     garageNeverReport = true;
+  //     if (garageReportEvent)
+  //     {
+  //       garageReportEvent->kill(&garageReportEvent);
+  //     }
+  //   }
+} // this is the end of the function
 
 void updateAppTableEventWrapper()
 {
@@ -944,14 +1010,26 @@ void updateV127Data()
                   String(indoorLedStartHour) +
                   "," +
                   String(indoorLedStopHour);
+
+  garageLedInfo = GARAGE_SYSTEM_ID +
+                  "," +
+                  String(garageLedOpMode) +
+                  "," +
+                  String(garageLedLight) + // 240 is just a random value, the led is not allow to change light
+                  "," +
+                  String(garageLedStartHour) + // the value does not matter
+                  "," +
+                  String(garageLedStopHour); // the value does not matter
   // Blynk.virtualWrite(V127, "", ""); do not uncomment this line
-  Blynk.virtualWrite(V127, deckLedInfo, indoorLedInfo);
+  Blynk.virtualWrite(V127, deckLedInfo, indoorLedInfo, garageLedInfo);
 }
 
 void debugTerminalPrintEventWrapper()
 {
   debugTerminal.println(deckLedInfo);
   debugTerminal.println(indoorLedInfo);
+  debugTerminal.println(garageLedInfo);
+
   debugTerminal.println("-----------");
 }
 /**********************************************************************************************************/
