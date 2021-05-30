@@ -70,25 +70,25 @@ bool drivewayNodemcuIsOnline = true;
 int drivewayWatchdogCount = 0;     // driveway status display "offline" when the variable reaches a certian number
 int drivewayNotificationHour = 22; // after 22:00, if driveway is still opened, sends notification to app
 
-int deckLedOpMode = 0; // 0: off, 1: ON 2: auto
-int deckLedLight = 0;
+int deckLedOpMode = 3; // 1: off, 2: ON 3: auto
+int deckLedLight = 500;
 bool deckMcuOnline = false;
 int deckWatchdogCount = 0; // deckWatchdog status display "offline" when the variable reaches a certian number
-int deckLedStartHour = 0;
-int deckLedStopHour = 0;
+int deckLedStartHour = 17;
+int deckLedStopHour = 8;
 
-int indoorLedOpMode = 0;
-int indoorLedLight = 0;
+int indoorLedOpMode = 3;
+int indoorLedLight = 100;
 bool indoorMcuOnline = false;
 int indoorWatchdogCount = 0; // deckWatchdog status display "offline" when the variable reaches a certian number
-int indoorLedStartHour = 0;
-int indoorLedStopHour = 0;
+int indoorLedStartHour = 17;
+int indoorLedStopHour = 8;
 
 // 0: off, 1: ON 2: auto
 // led in the garage only take operation mode, no other paramter
 // set auto as the default mode
-int garageLedOpMode = 2;
-int garageLedLight = 240; // the value does not mean anything
+int garageLedOpMode = 3;
+int garageLedLight = 0; // the value does not mean anything
 int garageLedStartHour = 16; // the value does not mean anything
 int garageLedStopHour = 4; // the value does not mean anything
 // the var is for solving garage led does not turn off from hard_on to auto
