@@ -569,8 +569,8 @@ void setup()
   debugEvent = new IntervalEvent(1500, debugEventWrapper);
 
   debugTerminalPrintEvent = new IntervalEvent(5000, debugTerminalPrintEventWrapper);
-  syncEvent = new TimeoutEvent(30000, [&]() -> void
-                               { Blynk.syncAll(); });
+  // syncEvent = new TimeoutEvent(30000, [&]() -> void
+  //                              { Blynk.syncAll(); });
 
   // initiate the table, V11 is a table on Blynk App
   Blynk.virtualWrite(V11, "clr");
