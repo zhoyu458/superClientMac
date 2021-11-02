@@ -8,7 +8,6 @@
 #define LIGHT_THRESHOLD_VALUE 1200 // more light, greater value
 #define LED_DECK_SYSTEM 1
 #define LED_INDOOR_SYSTEM 2
-
 #define LED_GARAGE_SYSTEM 3
 
 #include <ESP8266WiFi.h>
@@ -69,7 +68,6 @@ bool drivewayIsClosed = true;
 bool drivewayNodemcuIsOnline = true;
 int drivewayWatchdogCount = 0;     // driveway status display "offline" when the variable reaches a certian number
 int drivewayNotificationHour = 22; // after 22:00, if driveway is still opened, sends notification to app
-
 int deckLedOpMode = 3; // 1: off, 2: ON 3: auto
 int deckLedLight = 500;
 bool deckMcuOnline = false;
@@ -182,9 +180,7 @@ TimeoutEvent *turnOffLedSwitchEvent = NULL; //turn off the pin connects to Ardui
 
 /********************************BRIDGE***************************/
 WidgetBridge remote_nodemcu_bridge(V1); // serverMCU is the unit connect to the physical remotes
-
 WidgetBridge deck_nodemcu_bridge(V100);
-
 WidgetBridge indoor_nodemcu_bridge(V101);
 
 /*****************************BLYNK WRITE**************************/
@@ -1040,7 +1036,6 @@ void debugTerminalPrintEventWrapper()
   debugTerminal.println(deckLedInfo);
   debugTerminal.println(indoorLedInfo);
   debugTerminal.println(garageLedInfo);
-
   debugTerminal.println("-----------");
 }
 /**********************************************************************************************************/
