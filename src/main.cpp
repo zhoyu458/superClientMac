@@ -398,13 +398,24 @@ BLYNK_WRITE(V19)
     // pull all from deck LED nodeMcu, include (1) opMode (2) lightBrightnes (3) opearting hour
     // just send a signal to deck nodeMcu to pull all data, the value does not matter
     // then V13 should handle all incoming data and reflect to the App.
-    deck_nodemcu_bridge.virtualWrite(V2, 1);
+
+    //deck_nodemcu_bridge.virtualWrite(V2, 1); //not fetch from deckMcu anymore for sync simplification
+
+    Blynk.virtualWrite(V12, deckLedOpMode);
+    Blynk.virtualWrite(V14, deckLedLight);
+    Blynk.virtualWrite(V20, deckLedStartHour);
+    Blynk.virtualWrite(V21, deckLedStopHour);
     return;
   }
 
   if (ledSystemSelector == LED_INDOOR_SYSTEM)
   {
-    indoor_nodemcu_bridge.virtualWrite(V2, 1);
+    // indoor_nodemcu_bridge.virtualWrite(V2, 1); //not fetch from deckMcu anymore for sync simplification
+    Blynk.virtualWrite(V12, indoorLedOpMode);
+    Blynk.virtualWrite(V14, indoorLedLight);
+    Blynk.virtualWrite(V20, indoorLedStartHour);
+    Blynk.virtualWrite(V21, indoorLedStopHour);
+
     return;
   }
 
